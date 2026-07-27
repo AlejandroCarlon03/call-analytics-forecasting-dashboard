@@ -21,7 +21,14 @@ yesterday. It complements the existing descriptive tools on the Desktop
 (`RetellAnalyzer.py`, `RetellDashboard_Web.py`), which report on the past.
 
 **Status.** Feature-complete against the original spec and working end to end.
-167 tests pass. **Not yet production-useful for point forecasts** — see §4.
+**Not yet production-useful for point forecasts** — see §4.
+
+**Active work.** Migrating the HTML dashboard to React. Branch
+`feature/react-frontend-scaffold`; PR 1 (payload contract) and PR 2 (frontend
+scaffold) are done. See §8.
+
+**Test suite health.** Two test files currently crash *during collection* on
+this machine for reasons unrelated to any recent change — see §4.
 
 ---
 
@@ -49,10 +56,21 @@ call-forecast/
 │   ├── anomalies.py        # robust z-scores + 4 standing alert rules
 │   ├── explain.py          # SHAP / permutation / native importance
 │   ├── scenarios.py        # Erlang B/C/A queueing + what-if
-│   ├── dashboard.py        # self-contained HTML report
+│   ├── dashboard.py        # self-contained HTML report (being replaced, §8)
+│   ├── serialize.py        # run -> JSON payload; the frontend's contract
 │   ├── pipeline.py         # orchestration + retrain detection + CSV writing
 │   └── cli.py              # argparse entry point
-├── tests/                  # 150 unit + 17 doctests (~1,260 lines)
+├── frontend/               # React dashboard (§8) - Node is dev-only
+│   ├── src/
+│   │   ├── data/           # payload types, loader, committed fixture
+│   │   ├── theme/          # tokens.css (generated), provider, useTheme
+│   │   ├── components/shell/   # AppShell, header, rail, footer, toggle
+│   │   ├── lib/format.ts   # port of dashboard.py _fmt()
+│   │   └── styles/
+│   └── README.md           # frontend conventions and workflows
+├── scripts/
+│   └── gen_tokens.py       # THEME -> frontend/src/theme/tokens.css
+├── tests/                  # unit + doctests
 ├── examples/
 │   └── sample_export.csv   # 1,711 synthetic calls over 210 days
 ├── config.yaml             # shipped defaults, annotated
@@ -137,7 +155,33 @@ than fitted on a handful of points and quietly trusted.
 
 - Full pipeline on real data (159 calls / 71 days): ~2.5 min, all outputs.
 - Full pipeline on `examples/sample_export.csv` (1,711 calls / 210 days).
-- 150 unit tests + 17 doctests pass.
+- 154 unit tests + 18 doctests pass (of the files that collect — see below).
+
+### Test collection crash (environment, not code)
+
+`tests/test_ingest.py` and `tests/test_forecast_and_models.py` abort with
+`Windows fatal exception: access violation` **during collection**. The other
+five files, including everything added by the React migration, pass.
+
+This reproduces on a clean `git worktree` of `HEAD` with no working changes, so
+it is not caused by recent work. The environment has drifted well past what
+`requirements.txt` pins:
+
+    python 3.12.10 · pytest 9.1.1 · numpy 2.4.6 · pandas 3.0.5
+
+Root cause is pytest 9's parametrize-ID generation calling
+`_pytest.compat.ascii_escaped()` on a `np.nan` parameter value; that function
+only handles `str`/`bytes`. Both crashing files pass `np.nan` (or tuples) as
+parametrize values.
+
+Two ways out, neither done yet because both are out of scope for the migration:
+
+1. Wrap the offending parameters — `pytest.param(np.nan, id="nan")` in
+   `test_ingest.py:36` and the tuple cases in `test_forecast_and_models.py`.
+   Smallest change, keeps the new toolchain.
+2. Pin `pytest<9` and `pandas<3` in `requirements.txt`. `pandas 3.0` is a major
+   release the code has not been audited against, so this is the conservative
+   choice and probably the right first move.
 - Dashboard: 11 Plotly figures, no horizontal overflow, no clipped labels,
   light/dark toggle restyles both CSS and figures, fully offline.
 - Retrain lifecycle: `check` exits 1 when pending / 0 otherwise; `--only-if-changed` skips correctly.
@@ -323,3 +367,119 @@ PR-sized, roughly independent, most valuable first.
     Python 3.10/3.11/3.12 on `windows-latest` and `ubuntu-latest`. Install
     without the optional extras on one matrix leg to prove Prophet/SHAP
     degradation works.
+
+---
+
+## 8. React Dashboard Migration
+
+**Branch.** `feature/react-frontend-scaffold`.
+
+Replacing the Python-rendered `reports/dashboard.html` (1,268 lines of string
+assembly, 5.08 MB output, 4.9 MB of it inlined Plotly) with a React app that
+consumes the JSON payload. The single-file, offline, mailable property is
+preserved — the target is one self-contained HTML file, just a much smaller one.
+
+### Done
+
+**PR 1 — payload contract** (merged, `e1b8394`). `call_forecast/serialize.py`:
+`build_payload()` / `dumps()` / `write_payload()`, plus
+`outputs/dashboard_data.json` from `pipeline._write_outputs()`. 57 tests.
+
+The load-bearing detail is JSON safety. `json.dumps` emits bare `NaN` and
+`Infinity` tokens that are **invalid JSON** and throw in `JSON.parse`, and this
+data is dense with them — `avg_duration_sec` is null on 42 of 71 real days.
+Every non-finite float becomes `null`; `dumps()` then uses `allow_nan=False` so
+anything that escapes raises at write time rather than failing in a browser.
+`<`, `>` and `&` are escaped so an anomaly message containing `</script>`
+cannot close the tag it will be inlined into.
+
+**PR 2 — frontend scaffold, theme system, shell** (this branch). Vite + React 19
++ TypeScript strict. Header, two-column layout, model rail, footer and theme
+toggle render from a committed fixture. No charts yet.
+
+### Frontend architecture
+
+**Stack.** Vite 7 · React 19 · TypeScript 5.9 · CSS Modules. Five dependencies
+total, no UI kit, no state library, no CSS framework. Node is a **dev**
+dependency: end users still `pip install` and run the CLI.
+
+**Payload loading** (`src/data/loadPayload.ts`) — three sources in order:
+
+1. inline `<script id="dashboard-data" type="application/json">` — production;
+2. `fetch('./dashboard_data.json')` — served mode, and the seam an API plugs into;
+3. the committed fixture — **dev only**, behind `import.meta.env.DEV` so Vite
+   drops it from production builds.
+
+The fetch branch checks `content-type` for `application/json`, not just
+`response.ok`: Vite's SPA fallback answers a missing `dashboard_data.json` with
+`index.html` and a 200, which would otherwise be parsed as JSON and fail hard
+instead of falling through to the fixture.
+
+**Theme.** `src/theme/tokens.css` is **generated** from
+`call_forecast.dashboard.THEME` by `scripts/gen_tokens.py`;
+`tests/test_tokens.py` fails if the checked-in file drifts. The palette is
+audited, so one source of truth matters more than convenience.
+
+Light is the base in `:root`; `@media (prefers-color-scheme: dark)` applies dark
+when the viewer has not pinned light; `:root[data-theme="dark"]` overrides both.
+Because the OS case is pure CSS, the right palette is applied *before* React
+mounts — no flash. `data-theme` is only stamped once the viewer chooses, which
+is exactly how the Python dashboard behaves. `useTheme()` exposes `mode` (what
+is rendered) and `preference` (`light` / `dark` / `system`); an explicit choice
+persists to `localStorage` under `call-forecast:theme`.
+
+**State.** No library. `ThemeContext` for theme, `useState` in `App` for rail
+selection. The payload is immutable and arrives once. TanStack Query becomes
+correct the day there is a live API, not before.
+
+**Layout.** `grid-template-columns: var(--rail) minmax(0, 1fr)`. The
+`minmax(0, 1fr)` is load-bearing — a bare `1fr` lets a wide table or chart force
+the page into horizontal scroll. Below 900px the rail collapses to a
+horizontally scrolling strip; the page itself never scrolls sideways.
+
+### Remaining steps
+
+**PR 3 — primitives and non-chart sections.** `Card`, `Section`, `StatTile`,
+`Callout`, `DataTable`, `TableView`. Renders Data Quality, At a Glance,
+Scenarios and the anomaly tables. Deletes `PendingSections.tsx` entries as they
+land. Risk: number-formatting drift from `_fmt()`.
+
+**PR 4 — `PlotlyChart` base + forecast charts.** The riskiest PR; timebox the
+wrapper before committing to the rest. Use `plotly.js-cartesian-dist-min`
+(scatter + bar + heatmap, ~1.1 MB) not the full 4.9 MB bundle. Consider a ~40
+line `Plotly.react()` wrapper over `react-plotly.js`, which is thinly maintained
+and defaults to the full bundle.
+
+**PR 5 — remaining charts.** Monthly cost, heatmap, leaderboard, importance,
+anomaly. Three fixes from `dashboard.py` are easy to silently drop and are
+therefore acceptance criteria:
+
+- `xaxis.type: 'category'` on the monthly chart, or Plotly parses `"2026-08"` as
+  a date and **drops the `(partial)` bars**;
+- `xaxis.type: 'category'` on the heatmap, or `"00".."23"` land on a numeric scale;
+- `constraintext: 'none'`, or Plotly clips `"$3.90"` to `"$"` on a narrow bar.
+
+**PR 6 — single-file bundling and pipeline integration.** `vite-plugin-singlefile`,
+a committed template at `call_forecast/assets/`, payload injected as an inline
+script. Target ≤ 2 MB (from 5.08 MB). Needs a CI check that rebuilding the
+template produces no diff, or a stale template will ship.
+
+**PR 7 — real rail behaviour.** Filter the page to one model; put selection in
+the URL hash. Charts inside `display:none` get zero dimensions — mount lazily or
+resize on reveal.
+
+**PR 8 — flip the default, retire `dashboard.py`.** Keep `--legacy-dashboard`
+for one release.
+
+**PR 9 — CI.** Node build + typecheck + pytest. Folds into §7 item 10.
+
+### Frontend conventions
+
+- camelCase for structural keys, snake_case preserved for data identifiers
+  (`modelLabel` vs `call_volume`, `yhat_lower`).
+- **Every payload number can be `null`.** Not an edge case.
+- Colours come from custom properties, never literals. Re-run
+  `scripts/gen_tokens.py` after any `THEME` change.
+- Wide content scrolls inside its own container; the page never does.
+- `frontend/README.md` has the workflows, including regenerating the fixture
+  (which comes from `examples/`, never from `data/` — it is committed).

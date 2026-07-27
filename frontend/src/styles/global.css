@@ -1,0 +1,55 @@
+/*
+ * Global element styles, ported from the `_stylesheet()` f-string in
+ * dashboard.py. Everything component-scoped lives in a *.module.css beside its
+ * component; only genuinely global rules belong here.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  /* The page must never scroll sideways. A wide table or chart is allowed to
+     scroll inside its own container, and each of those sets overflow-x itself. */
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+}
+
+/* A visible, consistent focus ring everywhere. The Python dashboard only had
+   one on the nav rail; keyboard users need it on every control. */
+:focus-visible {
+  outline: 2px solid var(--series1);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Respect a reduced-motion preference rather than smooth-scrolling regardless. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

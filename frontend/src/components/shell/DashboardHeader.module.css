@@ -1,0 +1,33 @@
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 18px;
+  margin-bottom: 26px;
+}
+
+.title {
+  font-size: 26px;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* The separator is decorative; it is aria-hidden in the markup so a screen
+   reader is not read a run of middot characters between the facts. */
+.sep {
+  padding: 0 2px;
+}
+
+@media (max-width: 640px) {
+  .title {
+    font-size: 21px;
+  }
+}

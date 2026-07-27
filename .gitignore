@@ -14,3 +14,12 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 .venv/
+
+# Frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+# The fixture under frontend/src/data/fixtures/ IS committed - the dev server
+# needs it and PRs 3-5 build against it. It comes from the synthetic sample
+# export, never from data/.

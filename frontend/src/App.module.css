@@ -1,0 +1,30 @@
+.status {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 48px 20px;
+  color: var(--ink2);
+  font-size: 14px;
+}
+
+.error {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--critical);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 16px 18px;
+}
+
+.errorTitle {
+  font-weight: 600;
+  color: var(--critical);
+  margin-bottom: 6px;
+}
+
+.errorDetail {
+  color: var(--ink2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  /* An error message can be arbitrarily long; wrap it rather than let it push
+     the page sideways. */
+  overflow-wrap: anywhere;
+}
