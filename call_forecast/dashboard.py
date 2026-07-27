@@ -36,6 +36,7 @@ import numpy as np
 import pandas as pd
 
 from .config import AppConfig
+from .serialize import TARGET_LABELS, TARGET_UNITS
 
 log = logging.getLogger(__name__)
 
@@ -90,13 +91,6 @@ THEME: dict[str, dict[str, str]] = {
 
 #: Icon + label pairing, so a status is never conveyed by colour alone.
 SEVERITY_ICON = {"critical": "▲", "warning": "◆", "info": "●"}
-
-TARGET_LABELS = {
-    "call_volume": "Daily call volume",
-    "avg_duration_sec": "Average call duration",
-    "total_cost": "Daily cost",
-}
-TARGET_UNITS = {"call_volume": "calls", "avg_duration_sec": "seconds", "total_cost": "$"}
 
 
 def _fmt(value: float, target: str) -> str:

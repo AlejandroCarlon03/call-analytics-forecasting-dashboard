@@ -358,6 +358,36 @@ def _write_outputs(cfg: AppConfig, result: RunResult) -> dict[str, Path]:
         if shap_frames:
             save("shap_forecast_contributions", pd.concat(shap_frames, ignore_index=True))
 
+    # -- dashboard payload ---------------------------------------------------- #
+    # The JSON view of the whole run: what a frontend consumes instead of
+    # re-reading seventeen CSVs. Written unconditionally rather than behind the
+    # report flag, because unlike the HTML it costs nothing (no Plotly import)
+    # and it is the artefact an API would serve.
+    #
+    # Wrapped, on the same principle as the dashboard: the CSVs are the
+    # load-bearing deliverable and a report artefact must never take the run
+    # down with it.
+    try:
+        from .serialize import build_payload, write_payload
+
+        payload = build_payload(
+            calls=result.calls.frame,
+            daily=result.daily,
+            evaluations=result.evaluations,
+            forecasts=result.forecasts,
+            anomaly_report=result.anomalies,
+            explanations=result.explanations,
+            scenario_table=result.scenarios,
+            scenario_notes=result.scenario_notes,
+            ingestion_report=result.report,
+            cfg=cfg,
+        )
+        written["dashboard_data"] = write_payload(
+            out_dir / "dashboard_data.json", payload
+        )
+    except Exception as exc:  # noqa: BLE001 - CSVs must survive a payload failure
+        log.error("Dashboard payload serialisation failed: %s", exc, exc_info=True)
+
     # -- scenarios & features ------------------------------------------------ #
     save("scenarios", result.scenarios)
 
