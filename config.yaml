@@ -1,0 +1,99 @@
+# call_forecast configuration
+# ============================
+# Every key is optional — anything omitted keeps the default from
+# call_forecast/config.py. Run with:  python -m call_forecast run -c config.yaml
+#
+# The values below are the shipped defaults, written out so they are easy to
+# find and change. The ones most worth reviewing for your own line are marked
+# REVIEW.
+
+paths:
+  root: "."                 # data/, outputs/, models/ and reports/ live here
+  data_dir: "data"
+  output_dir: "outputs"
+  model_dir: "models"
+  report_dir: "reports"
+
+data:
+  patterns: ["*.csv"]       # add "*.xlsx" to pick up Excel exports too
+  holiday_country: "US"
+  holiday_subdiv: "AZ"      # REVIEW: your state, for state-specific holidays
+  fill_calendar_gaps: true  # insert zero-call days; turning this off biases models high
+  max_bad_timestamp_share: 0.05
+  max_plausible_duration_sec: 14400
+  max_plausible_cost: 100.0
+
+business_hours:
+  # REVIEW: these define the after-hours features and the overnight alert.
+  start_hour: 8             # inclusive
+  end_hour: 17              # exclusive, so 17 means "up to 16:59"
+  workdays: [0, 1, 2, 3, 4] # Monday = 0
+  overnight_start_hour: 22
+  overnight_end_hour: 6
+
+features:
+  lags: [1, 2, 3, 7, 14]
+  rolling_windows: [7, 30]
+  drop_zero_variance: true
+  exog_carry_forward_days: 28
+
+models:
+  enabled:
+    - seasonal_naive        # the benchmark; keep it, it is what makes the rest meaningful
+    - linear_regression
+    - random_forest
+    - xgboost
+    - prophet               # skipped automatically if prophet is not installed
+    - sarima
+  random_state: 42
+
+  # Minimum observations before a model is allowed to fit at all. Below these,
+  # the model is skipped with a logged reason rather than fitted on a handful
+  # of points and quietly trusted. Lower them only if you are willing to act on
+  # a model trained on that little data.
+  min_observations:
+    seasonal_naive: 14
+    linear_regression: 30
+    random_forest: 30
+    xgboost: 30
+    prophet: 30
+    sarima: 28
+
+cv:
+  # Walk-forward validation. With N days of history you get roughly
+  # (N - initial_train_days) / step folds.
+  initial_train_days: 42
+  horizon: 7
+  step: 7
+  min_folds: 2
+  selection_metric: "mase"  # mase|mae|rmse|mape|smape|r2 — MASE survives zero-call days
+  selection_tiebreaker: "rmse"
+
+forecast:
+  horizons: [30, 60, 90]
+  interval_level: 0.80      # 0.80 -> p10..p90
+  n_simulations: 1000
+  targets: ["call_volume", "avg_duration_sec", "total_cost"]
+
+anomalies:
+  robust_z_threshold: 3.0
+  cost_overrun_pct: 0.20    # alert when daily cost exceeds expectation by 20%
+  duration_sigma: 2.0
+  missed_spike_sigma: 2.0
+  missed_spike_min_count: 3 # suppresses "1 of 2 calls missed" noise
+  overnight_min_calls: 1
+  baseline_window_days: 30
+
+scenarios:
+  volume_uplifts: [0.10, 0.15, 0.25]
+
+  # REVIEW: these four drive every staffing and wait-time number. The defaults
+  # are placeholders, not measurements — set them to how the line is actually
+  # run or the staffing column is fiction.
+  current_agents: 1             # people answering during business hours
+  staffed_hours_per_day: 9.0
+  target_answer_seconds: 30.0   # the service-level clock
+  service_level_pct: 0.80       # answer 80% of calls within 30s
+
+  # Mean caller patience is 1 / this, in seconds. 0.01 -> 100 seconds.
+  abandon_rate_per_second: 0.01

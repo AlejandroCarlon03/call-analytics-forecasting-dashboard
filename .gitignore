@@ -1,0 +1,16 @@
+# Generated artefacts
+outputs/
+reports/
+models/*.json
+models/*.csv
+
+# Inputs are data, not code
+data/*.csv
+data/*.xlsx
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/

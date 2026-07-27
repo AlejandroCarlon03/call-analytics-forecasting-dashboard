@@ -1,0 +1,21 @@
+# Core — required
+pandas>=2.2
+numpy>=1.26
+scikit-learn>=1.4
+statsmodels>=0.14
+xgboost>=2.0
+holidays>=0.45
+PyYAML>=6.0
+plotly>=5.18,<7
+
+# Optional — the pipeline degrades gracefully without these.
+#   prophet : adds the Prophet model to the comparison. Needs a working Stan
+#             toolchain; if it will not install, the other five models still run.
+#   shap    : adds per-prediction attribution. Without it, explanations fall
+#             back to permutation and native importance.
+prophet>=1.1
+shap>=0.44
+
+# Development
+pytest>=8.0
+openpyxl>=3.1        # only needed to read .xlsx exports

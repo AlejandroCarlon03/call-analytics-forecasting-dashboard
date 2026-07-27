@@ -1,0 +1,4 @@
+# Normalise line endings so Windows/Linux contributors don't churn the diff.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.csv text eol=lf
