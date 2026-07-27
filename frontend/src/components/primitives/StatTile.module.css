@@ -1,0 +1,49 @@
+/* Ported from the `.tiles` and `.tile*` rules in dashboard.py. */
+
+.grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  min-width: 0;
+}
+
+.label {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.value {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-top: 4px;
+}
+
+.sub {
+  color: var(--ink2);
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.critical .value {
+  color: var(--critical);
+}
+
+.good .value {
+  color: var(--good);
+}
+
+@media (max-width: 640px) {
+  .value {
+    font-size: 25px;
+  }
+}

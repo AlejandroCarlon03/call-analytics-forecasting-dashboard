@@ -1,0 +1,19 @@
+/* Ported from the `details.tableview` rules in dashboard.py. */
+
+.tableview {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  /* Keep the native triangle; `list-style: none` is the usual default here. */
+  list-style: revert;
+}
+
+.summary:hover {
+  color: var(--ink2);
+}

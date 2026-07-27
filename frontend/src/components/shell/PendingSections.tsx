@@ -17,18 +17,6 @@ export function PendingSections({ payload }: { payload: DashboardPayload }) {
 
   const pending: Array<{ name: string; detail: string; pr: string }> = [
     {
-      name: 'Data quality',
-      detail: `${payload.ingestion.warnings.length} ingestion warning(s), ` +
-        `${Math.round(payload.ingestion.coverage_pct)}% coverage`,
-      pr: 'PR 3',
-    },
-    {
-      name: 'At a glance',
-      detail: `${targets} target(s), ` +
-        `${payload.anomalies.counts.critical + payload.anomalies.counts.warning} alert(s) raised`,
-      pr: 'PR 3',
-    },
-    {
       name: 'Forecasts',
       detail: `${targets} forecast(s), ` +
         `${formatCount(Object.values(payload.forecasts)[0]?.daily.length ?? 0)} days each`,
@@ -56,15 +44,10 @@ export function PendingSections({ payload }: { payload: DashboardPayload }) {
       pr: 'PR 5',
     },
     {
-      name: 'Anomalies and alerts',
+      name: 'Anomaly timeline chart',
       detail: `${formatCount(payload.anomalies.items.length)} flagged day(s), ` +
-        `${payload.anomalies.counts.critical} critical`,
-      pr: 'PR 3 / 5',
-    },
-    {
-      name: 'Scenario analysis',
-      detail: `${payload.scenarios.rows.length} scenario(s)`,
-      pr: 'PR 3',
+        `${payload.anomalies.counts.critical} critical — the tables below are live`,
+      pr: 'PR 5',
     },
   ];
 
@@ -72,9 +55,9 @@ export function PendingSections({ payload }: { payload: DashboardPayload }) {
     <section className={styles.section}>
       <h2 className={styles.heading}>Migration in progress</h2>
       <p className={styles.blurb}>
-        The shell, theme system and payload loader are in place. The sections below are still
-        rendered by the Python dashboard; each shows live counts read from the loaded payload
-        and will be replaced by its React implementation in the pull request named beside it.
+        Data quality, at a glance, anomalies and scenarios now render from React. What remains
+        is chart-bearing; each entry below shows live counts read from the loaded payload and
+        will be replaced by its React implementation in the pull request named beside it.
       </p>
       {pending.map((item) => (
         <div className={styles.card} key={item.name}>

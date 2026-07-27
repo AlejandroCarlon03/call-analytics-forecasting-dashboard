@@ -6,6 +6,12 @@ import { DashboardHeader } from './components/shell/DashboardHeader';
 import { DashboardFooter } from './components/shell/DashboardFooter';
 import { PendingSections } from './components/shell/PendingSections';
 import { SideNav, type NavTab } from './components/shell/SideNav';
+import {
+  AnomaliesSection,
+  AtAGlanceSection,
+  DataQualitySection,
+  ScenariosSection,
+} from './components/sections';
 import styles from './App.module.css';
 
 type State =
@@ -102,7 +108,16 @@ export function App() {
         <DashboardFooter config={state.payload.config} generatedAt={state.payload.generatedAt} />
       }
     >
+      {/* Page order matches `build_dashboard()`. The chart-bearing sections
+          between "At a glance" and "Anomalies" are still pending (PRs 4-5). */}
+      <DataQualitySection ingestion={state.payload.ingestion} />
+      <AtAGlanceSection payload={state.payload} />
       <PendingSections payload={state.payload} />
+      <AnomaliesSection
+        anomalies={state.payload.anomalies}
+        config={state.payload.config.anomalies}
+      />
+      <ScenariosSection scenarios={state.payload.scenarios} />
     </AppShell>
   );
 }
