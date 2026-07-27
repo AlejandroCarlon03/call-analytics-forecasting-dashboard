@@ -1,0 +1,70 @@
+/* Ported from the `.callout*` rules in dashboard.py, tone for tone. */
+
+.callout {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 8px 0;
+  background: var(--surface);
+  font-size: 14px;
+}
+
+.icon {
+  font-size: 12px;
+}
+
+.label {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  /* The tone label must not wrap to a second line beside a long message. */
+  flex: 0 0 auto;
+}
+
+.text {
+  color: var(--ink2);
+}
+
+.critical {
+  border-left-color: var(--critical);
+}
+
+.critical .icon,
+.critical .label {
+  color: var(--critical);
+}
+
+.warning {
+  border-left-color: var(--warning);
+}
+
+/* Warning text uses `--serious`, not `--warning`: the amber that reads well as
+   a border does not meet contrast as small text. This split is in the audited
+   Python palette and is not a transcription slip. */
+.warning .icon,
+.warning .label {
+  color: var(--serious);
+}
+
+.good {
+  border-left-color: var(--good);
+}
+
+.good .icon,
+.good .label {
+  color: var(--good);
+}
+
+.info {
+  border-left-color: var(--series1);
+}
+
+.info .icon,
+.info .label {
+  color: var(--series1);
+}

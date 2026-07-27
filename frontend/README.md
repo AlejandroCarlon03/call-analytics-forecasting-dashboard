@@ -68,6 +68,39 @@ applied before React mounts rather than flashing and correcting.
 `'dark'` or `'system'`). An explicit choice persists in `localStorage` under
 `call-forecast:theme`; `'system'` removes the key and resumes following the OS.
 
+## Components
+
+```
+components/primitives/   Card, Section, StatTile + TileGrid, Callout,
+                         DataTable, TableView — ports of the `_card`,
+                         `_section`, `_stat_tile`, `_callout`, `_table` and
+                         `_table_view` helpers in dashboard.py.
+components/sections/     One file per dashboard section.
+components/shell/        Header, rail, footer, theme toggle, layout.
+```
+
+Sections compose primitives and never write their own table, tile or callout
+markup.
+
+### DataTable
+
+Columns declare a `value` accessor rather than a string key — payload rows are
+interfaces, and an interface is not assignable to `Record<string, …>` under
+`strict`, so keyed indexing does not typecheck. `deriveColumns()` builds them
+from a row's own keys when the column set is open-ended, as it is for
+scenarios.
+
+**Integer columns must be declared.** pandas knew `current_agents` was
+`int64`, but JSON carries `1` and `1.0` identically, so a table that guessed
+would print `0` where the Python dashboard prints `0.00`. Pass the table's
+default decimals as `digits`, and give integer columns `digits: 0` — via
+`deriveColumns(rows, { integerKeys })` when the columns are derived.
+
+Sorting is opt-in per table. Default order is always the payload's, so an
+untouched table matches the Python dashboard row for row. Missing values sort
+last in **both** directions: floating a column's gaps to the top of a
+descending sort would read as "these are the largest".
+
 ## Conventions
 
 - **camelCase for structural keys, snake_case preserved for data identifiers.**

@@ -24,8 +24,8 @@ yesterday. It complements the existing descriptive tools on the Desktop
 **Not yet production-useful for point forecasts** — see §4.
 
 **Active work.** Migrating the HTML dashboard to React. Branch
-`feature/react-frontend-scaffold`; PR 1 (payload contract) and PR 2 (frontend
-scaffold) are done. See §8.
+`feature/react-components`; PR 1 (payload contract), PR 2 (frontend scaffold)
+and PR 3 (primitives + non-chart sections) are done. See §8.
 
 **Test suite health.** Two test files currently crash *during collection* on
 this machine for reasons unrelated to any recent change — see §4.
@@ -64,8 +64,13 @@ call-forecast/
 │   ├── src/
 │   │   ├── data/           # payload types, loader, committed fixture
 │   │   ├── theme/          # tokens.css (generated), provider, useTheme
-│   │   ├── components/shell/   # AppShell, header, rail, footer, toggle
+│   │   ├── components/shell/       # AppShell, header, rail, footer, toggle
+│   │   ├── components/primitives/  # Card, Section, StatTile, Callout,
+│   │   │                           #   DataTable, TableView
+│   │   ├── components/sections/    # data quality, at a glance, anomalies,
+│   │   │                           #   scenarios
 │   │   ├── lib/format.ts   # port of dashboard.py _fmt()
+│   │   ├── lib/columns.ts  # derive DataTable columns from payload rows
 │   │   └── styles/
 │   └── README.md           # frontend conventions and workflows
 ├── scripts/
@@ -372,7 +377,7 @@ PR-sized, roughly independent, most valuable first.
 
 ## 8. React Dashboard Migration
 
-**Branch.** `feature/react-frontend-scaffold`.
+**Branch.** `feature/react-components`.
 
 Replacing the Python-rendered `reports/dashboard.html` (1,268 lines of string
 assembly, 5.08 MB output, 4.9 MB of it inlined Plotly) with a React app that
@@ -393,9 +398,49 @@ anything that escapes raises at write time rather than failing in a browser.
 `<`, `>` and `&` are escaped so an anomaly message containing `</script>`
 cannot close the tag it will be inlined into.
 
-**PR 2 — frontend scaffold, theme system, shell** (this branch). Vite + React 19
-+ TypeScript strict. Header, two-column layout, model rail, footer and theme
-toggle render from a committed fixture. No charts yet.
+**PR 2 — frontend scaffold, theme system, shell** (merged, `0238bcf`). Vite +
+React 19 + TypeScript strict. Header, two-column layout, model rail, footer and
+theme toggle render from a committed fixture. No charts yet.
+
+**PR 3 — primitives and non-chart sections** (this branch). `Card`, `Section`,
+`StatTile`/`TileGrid`, `Callout`, `DataTable` and `TableView` under
+`components/primitives/`, and the four chart-free sections — Data Quality, At a
+Glance, Anomalies and alerts, Scenario analysis — under `components/sections/`.
+Their entries are gone from `PendingSections.tsx`, which now lists only
+chart-bearing work.
+
+Three things are worth knowing before touching the tables.
+
+*JSON has already destroyed the int/float distinction.* `_table()` prints an
+`int64` column as `{:,}` and a float column with the table's `numeric_format`,
+but `1` and `1.0` both arrive here as `1`. Detecting integer-ness from the
+value would print `0` where the Python dashboard prints `0.00`. So `DataTable`
+takes a per-table `digits` and columns opt out with `digits: 0`;
+`deriveColumns(rows, { integerKeys })` is how a caller names them. Today that
+is `current_agents` and `required_agents` in the scenario table. **A new
+integer column in `scenarios.py` must be added to `INTEGER_COLUMNS` in
+`ScenariosSection.tsx`** or it will render with two decimals.
+
+*Columns carry an accessor, not a string key.* Payload rows are declared as
+interfaces, and a TypeScript interface is not assignable to
+`Record<string, CellValue>` under `strict`, so keyed indexing does not
+typecheck. `Column.value` is a function; the one cast this needs lives in
+`deriveColumns` and nowhere else.
+
+*Sorting is opt-in, and missing values sort last in both directions.* The
+direction sign is deliberately not applied to the missing-value branch — a
+descending sort that floated a column's gaps to the top would read as "these
+are the largest", which is the opposite of what `null` means in this payload.
+The sort is stable, and default order is always the payload's, so an untouched
+table matches the Python dashboard row for row.
+
+Two deliberate departures from `dashboard.py`, both of which make the React
+version slightly better rather than different: tables carry a visually hidden
+`<caption>` and sortable `<th>`s carry `aria-sort`, neither of which the Python
+tables had. Two deliberate non-departures: header text stays the raw payload
+key (`volume_uplift_pct`, not "Volume Uplift Pct") because those identifiers
+also name CSV columns, and `anomalies.notes` is still not rendered, because the
+Python section does not render it either.
 
 ### Frontend architecture
 
@@ -439,11 +484,6 @@ horizontally scrolling strip; the page itself never scrolls sideways.
 
 ### Remaining steps
 
-**PR 3 — primitives and non-chart sections.** `Card`, `Section`, `StatTile`,
-`Callout`, `DataTable`, `TableView`. Renders Data Quality, At a Glance,
-Scenarios and the anomaly tables. Deletes `PendingSections.tsx` entries as they
-land. Risk: number-formatting drift from `_fmt()`.
-
 **PR 4 — `PlotlyChart` base + forecast charts.** The riskiest PR; timebox the
 wrapper before committing to the rest. Use `plotly.js-cartesian-dist-min`
 (scatter + bar + heatmap, ~1.1 MB) not the full 4.9 MB bundle. Consider a ~40
@@ -451,8 +491,9 @@ line `Plotly.react()` wrapper over `react-plotly.js`, which is thinly maintained
 and defaults to the full bundle.
 
 **PR 5 — remaining charts.** Monthly cost, heatmap, leaderboard, importance,
-anomaly. Three fixes from `dashboard.py` are easy to silently drop and are
-therefore acceptance criteria:
+anomaly. The anomaly chart goes *into* the existing `AnomaliesSection`, above
+the tally table, rather than into a new section. Three fixes from
+`dashboard.py` are easy to silently drop and are therefore acceptance criteria:
 
 - `xaxis.type: 'category'` on the monthly chart, or Plotly parses `"2026-08"` as
   a date and **drops the `(partial)` bars**;
@@ -480,6 +521,10 @@ for one release.
 - **Every payload number can be `null`.** Not an edge case.
 - Colours come from custom properties, never literals. Re-run
   `scripts/gen_tokens.py` after any `THEME` change.
-- Wide content scrolls inside its own container; the page never does.
+- Wide content scrolls inside its own container; the page never does. The
+  15-column scenario table is the current worst case and is verified not to
+  push the page sideways at 375px.
+- Sections compose primitives; they do not write their own table, tile or
+  callout markup. A section that needs new chrome extends a primitive.
 - `frontend/README.md` has the workflows, including regenerating the fixture
   (which comes from `examples/`, never from `data/` — it is committed).

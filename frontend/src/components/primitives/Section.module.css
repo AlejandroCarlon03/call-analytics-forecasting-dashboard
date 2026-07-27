@@ -1,0 +1,25 @@
+/* Ported from the `section`, `section > h2` and `.blurb` rules in dashboard.py. */
+
+.section {
+  margin: 36px 0;
+}
+
+.section:first-child {
+  margin-top: 0;
+}
+
+.heading {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.blurb {
+  color: var(--ink2);
+  margin: 0 0 16px;
+  max-width: 78ch;
+  font-size: 14px;
+}
