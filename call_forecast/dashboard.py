@@ -553,6 +553,32 @@ def _callout(text: str, tone: str = "info", icon: str = "●") -> str:
     )
 
 
+def _sidenav(tabs: Sequence[tuple[str, str]]) -> str:
+    """
+    The left-hand model rail.
+
+    ``tabs`` is ``(anchor id, label)`` in the order the forecast cards appear.
+    The rail is presentational for now — selecting a tab marks it current and
+    scrolls to its card; it does not yet filter the page down to one model.
+    """
+    if not tabs:
+        return ""
+    buttons = "".join(
+        "<button type='button' class='navtab' "
+        f"data-target='{_esc(anchor)}'{current}>{_esc(label)}</button>"
+        for current, (anchor, label) in (
+            (" aria-current='true'" if i == 0 else "", tab)
+            for i, tab in enumerate(tabs)
+        )
+    )
+    return (
+        "<nav class='sidenav' aria-label='Models'>"
+        "<div class='sidenav-title'>Models</div>"
+        f"<div class='navtabs'>{buttons}</div>"
+        "</nav>"
+    )
+
+
 def _section(title: str, body: str, blurb: str = "") -> str:
     """A titled dashboard section."""
     blurb_html = f"<p class='blurb'>{_esc(blurb)}</p>" if blurb else ""
@@ -561,10 +587,11 @@ def _section(title: str, body: str, blurb: str = "") -> str:
     )
 
 
-def _card(body: str, title: str = "") -> str:
+def _card(body: str, title: str = "", anchor: str = "") -> str:
     """A surface card wrapping a chart and its table view."""
     title_html = f"<h3>{_esc(title)}</h3>" if title else ""
-    return f"<div class='card'>{title_html}{body}</div>"
+    id_html = f" id='{_esc(anchor)}'" if anchor else ""
+    return f"<div class='card'{id_html}>{title_html}{body}</div>"
 
 
 # --------------------------------------------------------------------------- #
@@ -586,7 +613,8 @@ def _stylesheet() -> str:
   color-scheme: light;
 {variables(light)}
   --radius: 10px;
-  --maxw: 1180px;
+  --maxw: 1420px;
+  --rail: 248px;
 }}
 @media (prefers-color-scheme: dark) {{
   :root:not([data-theme="light"]) {{
@@ -625,7 +653,49 @@ header.top .meta {{ color: var(--muted); font-size: 13px; }}
 }}
 #theme-toggle:hover {{ color: var(--ink); }}
 
+/* Two-column shell: a sticky model rail, then the report itself. The content
+   column is minmax(0, 1fr) rather than 1fr so a wide table or Plotly figure
+   cannot force the grid — and with it the page — into horizontal overflow. */
+.layout {{
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+  gap: 34px;
+  align-items: start;
+}}
+main {{ min-width: 0; }}
+
+.sidenav {{ position: sticky; top: 24px; }}
+.sidenav-title {{
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted); font-weight: 600; margin: 0 0 10px 12px;
+}}
+.navtabs {{ display: flex; flex-direction: column; gap: 4px; }}
+
+.navtab {{
+  appearance: none;
+  display: block; width: 100%; text-align: left;
+  background: transparent; color: var(--ink2);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font: inherit; font-size: 13.5px; line-height: 1.35;
+  cursor: pointer;
+}}
+.navtab:hover {{ background: var(--surface); color: var(--ink); }}
+.navtab:focus-visible {{ outline: 2px solid var(--series1); outline-offset: 2px; }}
+/* Selection is carried by the weight, the surface and the left bar together —
+   never by hue alone. */
+.navtab[aria-current="true"] {{
+  background: var(--surface);
+  border-color: var(--border);
+  border-left: 3px solid var(--series1);
+  padding-left: 10px;
+  color: var(--ink);
+  font-weight: 600;
+}}
+
 section {{ margin: 36px 0; }}
+section:first-child {{ margin-top: 0; }}
 section > h2 {{
   font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em;
   color: var(--muted); font-weight: 600; margin: 0 0 6px;
@@ -694,6 +764,22 @@ footer {{
 footer ul {{ margin: 8px 0; padding-left: 20px; }}
 footer li {{ margin: 4px 0; }}
 
+/* Below the two-column threshold the rail becomes a scrolling strip above the
+   report rather than a squeezed column. */
+@media (max-width: 900px) {{
+  .layout {{ grid-template-columns: minmax(0, 1fr); gap: 20px; }}
+  .sidenav {{ position: static; }}
+  .navtabs {{
+    flex-direction: row; overflow-x: auto;
+    gap: 8px; padding-bottom: 6px;
+  }}
+  .navtab {{
+    width: auto; flex: 0 0 auto; white-space: nowrap;
+    border-color: var(--border); background: var(--surface);
+  }}
+  .navtab[aria-current="true"] {{ border-left-width: 3px; }}
+}}
+
 @media (max-width: 640px) {{
   .tile-value {{ font-size: 25px; }}
   header.top h1 {{ font-size: 21px; }}
@@ -741,7 +827,22 @@ function applyTheme(mode) {{
   styleFigures(mode);
 }}
 
+// Model rail. Presentational for now: selecting a tab marks it current and
+// brings its card into view. Nothing is filtered or hidden yet.
+function wireModelTabs() {{
+  const tabs = Array.from(document.querySelectorAll('.navtab'));
+  tabs.forEach((tab) => {{
+    tab.addEventListener('click', () => {{
+      tabs.forEach((other) => other.removeAttribute('aria-current'));
+      tab.setAttribute('aria-current', 'true');
+      const card = document.getElementById(tab.dataset.target || '');
+      if (card) card.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+    }});
+  }});
+}}
+
 document.addEventListener('DOMContentLoaded', () => {{
+  wireModelTabs();
   const button = document.getElementById('theme-toggle');
   if (button) {{
     button.addEventListener('click', () => {{
@@ -796,6 +897,8 @@ def build_dashboard(
 
     figures: list[Figure] = []
     parts: list[str] = []
+    #: (card anchor id, label) per forecast, in card order — drives the rail.
+    tabs: list[tuple[str, str]] = []
 
     # -- header ------------------------------------------------------------- #
     generated = datetime.now().strftime("%d %b %Y, %H:%M")
@@ -803,7 +906,7 @@ def build_dashboard(
         f"{ingestion_report.date_min:%d %b %Y} – {ingestion_report.date_max:%d %b %Y}"
         if ingestion_report.date_min is not None else "unknown range"
     )
-    parts.append(
+    header_html = (
         f"""<header class="top">
   <div>
     <h1>Call Analytics Forecast</h1>
@@ -910,13 +1013,17 @@ def build_dashboard(
             notes_html = "".join(
                 _callout(note, "info", SEVERITY_ICON["info"]) for note in result.notes
             )
+            label = f"{TARGET_LABELS.get(target, target)} — {result.model_label}"
+            anchor = f"model-{target}"
+            tabs.append((anchor, label))
             blocks.append(
                 _card(
                     f"<div id='{figure.id}' class='plot'></div>"
                     + _table(pd.DataFrame(horizon_rows))
                     + notes_html
                     + _table_view(table, "View full daily forecast as table"),
-                    f"{TARGET_LABELS.get(target, target)} — {result.model_label}",
+                    label,
+                    anchor,
                 )
             )
         parts.append(
@@ -1116,6 +1223,14 @@ def build_dashboard(
     )
 
     # -- render -------------------------------------------------------------- #
+    # With no forecasts there is nothing to name a tab after, so the report
+    # falls back to a single full-width column rather than an empty rail.
+    rail = _sidenav(tabs)
+    body_html = (
+        f"<div class='layout'>{rail}<main>{''.join(parts)}</main></div>"
+        if rail else f"<main>{''.join(parts)}</main>"
+    )
+
     plotly_js = _plotly_bundle()
     figure_scripts = []
     for figure in figures:
@@ -1136,7 +1251,8 @@ def build_dashboard(
 </head>
 <body>
 <div class="wrap">
-{''.join(parts)}
+{header_html}
+{body_html}
 </div>
 <script>{plotly_js}</script>
 <script>
