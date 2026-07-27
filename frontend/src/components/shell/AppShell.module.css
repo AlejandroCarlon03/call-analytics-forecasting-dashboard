@@ -1,0 +1,32 @@
+.wrap {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 28px 20px 72px;
+}
+
+/*
+ * Two-column shell: a sticky model rail, then the report itself.
+ *
+ * The content column is minmax(0, 1fr) rather than 1fr. A bare 1fr resolves to
+ * `auto` for sizing purposes, so a wide table or chart can force the grid — and
+ * with it the whole page — into horizontal overflow. This is load-bearing.
+ */
+.layout {
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+  gap: 34px;
+  align-items: start;
+}
+
+.main {
+  min-width: 0;
+}
+
+/* Below the two-column threshold the rail becomes a scrolling strip above the
+   report rather than a squeezed column. */
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+}

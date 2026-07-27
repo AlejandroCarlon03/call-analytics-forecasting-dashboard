@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Call Analytics Forecast</title>
+  </head>
+  <body>
+    <!--
+      In production (PR 6) the Python renderer injects the run's payload here as
+      <script id="dashboard-data" type="application/json">...</script>, and
+      loadPayload() finds it before trying any other source. In dev the element
+      is absent and the bundled fixture is used instead.
+    -->
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
