@@ -1,0 +1,11 @@
+/* The chart's own box.
+ *
+ * `width: 100%` with `min-width: 0` is the chart-side half of the rule that
+ * keeps the page from ever scrolling sideways: without the min-width a flex or
+ * grid child refuses to shrink below its content, and Plotly's SVG counts as
+ * content. Height comes from the figure's layout, not from here. */
+.plot {
+  width: 100%;
+  min-width: 0;
+  margin: 4px 0 8px;
+}
