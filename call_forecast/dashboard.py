@@ -20,6 +20,18 @@ Both light and dark themes are selected rather than auto-inverted: the page
 follows the OS preference, and the toggle in the header overrides it. Plotly
 figures are re-styled on toggle from a per-figure role map, so the marks change
 with the theme instead of staying baked at their light values.
+
+Migration status (PR 8)
+------------------------
+:func:`build_dashboard` is the LEGACY renderer defined in this module. As of
+PR 8 it is no longer the default: a plain ``python -m call_forecast run`` now
+produces :func:`build_dashboard_react`'s output instead. The legacy renderer
+is still reachable via ``python -m call_forecast run --legacy-dashboard``, and
+is being kept around intentionally for one release cycle as a fallback in
+case a problem turns up in the React renderer. It is scheduled for removal
+after that cycle. The size difference is the reason for the migration: the
+legacy output runs about 5.08 MB versus about 1.95 MB from the React
+renderer for the same run.
 """
 
 from __future__ import annotations
@@ -49,6 +61,13 @@ __all__ = ["THEME", "build_dashboard", "build_dashboard_react"]
 # --------------------------------------------------------------------------- #
 #: Validated palette. Light and dark are separately-stepped instances of the
 #: same hues, not an automatic inversion.
+#:
+#: NOTE (PR 8 migration status): THEME is consumed outside this module —
+#: scripts/gen_tokens.py generates frontend/src/theme/tokens.css from it, and
+#: tests/test_tokens.py fails if that checked-in file drifts from what THEME
+#: would produce. THEME outlives build_dashboard(): when the legacy renderer
+#: is eventually removed, THEME (and _stylesheet, which
+#: tests/test_tokens.py also reaches into) must NOT be removed along with it.
 THEME: dict[str, dict[str, str]] = {
     "light": {
         "surface": "#fcfcfb",
@@ -878,6 +897,10 @@ def build_dashboard(
     Parameters mirror the pipeline's outputs; each section degrades gracefully
     when its input is missing, so a partial run still produces a readable page.
 
+    Legacy renderer (PR 8): no longer the default as of PR 8. Reachable via
+    ``python -m call_forecast run --legacy-dashboard``. Retained intentionally
+    for one release cycle as a fallback, then scheduled for removal.
+
     Returns
     -------
     pathlib.Path
@@ -1321,10 +1344,14 @@ def build_dashboard_react(
     """
     Render the run into the React dashboard: one self-contained HTML file.
 
-    The signature mirrors :func:`build_dashboard` exactly so the pipeline
-    chooses a renderer and changes nothing else. The two produce the same
-    sections from the same run; this one is a fraction of the size, because the
-    presentation ships once as a compiled bundle instead of being re-emitted as
+    This is the default renderer as of PR 8: a plain
+    ``python -m call_forecast run`` produces this output. (The legacy
+    :func:`build_dashboard` is still available for one release cycle via
+    ``python -m call_forecast run --legacy-dashboard``.) The signature mirrors
+    :func:`build_dashboard` exactly so the pipeline can select either renderer
+    without changing anything else. The two produce the same sections from the
+    same run; this one is a fraction of the size, because the presentation
+    ships once as a compiled bundle instead of being re-emitted as
     string-assembled HTML with Plotly inlined behind it.
 
     How it works: the frontend is built ahead of time into a single HTML file

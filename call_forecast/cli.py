@@ -7,7 +7,9 @@ Command-line entry point.
 Commands
 --------
 ``run``
-    Full pipeline: ingest, validate, forecast, explain, detect, report.
+    Full pipeline: ingest, validate, forecast, explain, detect, report. The
+    React dashboard renders by default; pass --legacy-dashboard to render the
+    classic Python-assembled one instead (kept for one release cycle).
 ``check``
     Report whether new data has arrived, without training anything. Cheap
     enough to run from a scheduler every few minutes.
@@ -83,11 +85,17 @@ def cmd_run(args: argparse.Namespace) -> int:
     from .pipeline import run_pipeline
 
     cfg = _load_config(args)
+    if args.react_dashboard:
+        print(
+            "Note: --react-dashboard is deprecated and does nothing; "
+            "React is now the default renderer.",
+            file=sys.stderr,
+        )
     result = run_pipeline(
         cfg,
         force=not args.only_if_changed,
         build_report=not args.no_report,
-        react_dashboard=args.react_dashboard,
+        legacy_dashboard=args.legacy_dashboard,
     )
 
     if result is None:
@@ -131,6 +139,13 @@ def cmd_watch(args: argparse.Namespace) -> int:
     interval = max(args.interval, 5)
     print(f"Watching {cfg.paths.resolved().data_dir} every {interval}s. Ctrl-C to stop.")
 
+    if args.react_dashboard:
+        print(
+            "Note: --react-dashboard is deprecated and does nothing; "
+            "React is now the default renderer.",
+            file=sys.stderr,
+        )
+
     try:
         while True:
             try:
@@ -138,7 +153,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
                     cfg,
                     force=False,
                     build_report=not args.no_report,
-                    react_dashboard=args.react_dashboard,
+                    legacy_dashboard=args.legacy_dashboard,
                 )
                 if result is not None:
                     print(result.summary())
@@ -245,6 +260,7 @@ def build_parser() -> argparse.ArgumentParser:
             "examples:\n"
             "  python -m call_forecast run -v\n"
             "  python -m call_forecast run --only-if-changed\n"
+            "  python -m call_forecast run --legacy-dashboard\n"
             "  python -m call_forecast forecast call_volume\n"
             "  python -m call_forecast watch --interval 300\n"
         ),
@@ -257,9 +273,15 @@ def build_parser() -> argparse.ArgumentParser:
                      help="skip the run when the inputs are unchanged")
     run.add_argument("--no-report", action="store_true",
                      help="write CSVs but skip the HTML dashboard")
-    run.add_argument("--react-dashboard", action="store_true",
-                     help="render the React dashboard instead of the classic one "
-                          "(same file, much smaller; opt-in while it is proven)")
+    run_dashboard_group = run.add_mutually_exclusive_group()
+    run_dashboard_group.add_argument(
+        "--legacy-dashboard", action="store_true",
+        help="render the classic Python-assembled dashboard instead of the "
+             "React one; retained for one release")
+    run_dashboard_group.add_argument(
+        "--react-dashboard", action="store_true",
+        help="deprecated, does nothing: React is now the default dashboard "
+             "renderer (kept so existing scheduled tasks still parse)")
     run.set_defaults(func=cmd_run)
 
     check = sub.add_parser("check", parents=[common],
@@ -272,8 +294,15 @@ def build_parser() -> argparse.ArgumentParser:
                        help="seconds between polls (default 300)")
     watch.add_argument("--no-report", action="store_true",
                        help="write CSVs but skip the HTML dashboard")
-    watch.add_argument("--react-dashboard", action="store_true",
-                       help="render the React dashboard instead of the classic one")
+    watch_dashboard_group = watch.add_mutually_exclusive_group()
+    watch_dashboard_group.add_argument(
+        "--legacy-dashboard", action="store_true",
+        help="render the classic Python-assembled dashboard instead of the "
+             "React one; retained for one release")
+    watch_dashboard_group.add_argument(
+        "--react-dashboard", action="store_true",
+        help="deprecated, does nothing: React is now the default dashboard "
+             "renderer (kept so existing scheduled tasks still parse)")
     watch.set_defaults(func=cmd_watch)
 
     forecast = sub.add_parser("forecast", parents=[common],

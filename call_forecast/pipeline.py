@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -409,7 +410,8 @@ def run_pipeline(
     cfg: AppConfig | None = None,
     force: bool = True,
     build_report: bool = True,
-    react_dashboard: bool = False,
+    legacy_dashboard: bool = False,
+    react_dashboard: bool | None = None,
 ) -> RunResult | None:
     """
     Run the full analysis and write every deliverable.
@@ -425,11 +427,20 @@ def run_pipeline(
     build_report:
         Whether to render the HTML dashboard. Turning it off makes CSV-only
         runs noticeably faster, since Plotly is only imported when needed.
+    legacy_dashboard:
+        Render the classic Python-assembled dashboard instead of the React
+        one. As of PR 8, React is the default renderer; this flag is the
+        opt-out, kept for one release cycle while the React renderer is
+        proven in the field.
     react_dashboard:
-        Render the React dashboard instead of the Python-assembled one. Same
-        path, same sections, a fraction of the size. Opt-in while the React
-        renderer is still being proven against the original; the default stays
-        with the renderer that has been in service.
+        Deprecated back-compat keyword, retained for one release cycle so
+        pre-PR-8 call sites keep working unchanged. When passed (not
+        ``None``), it decides the renderer outright (``True`` -> React,
+        ``False`` -> legacy) and emits a ``DeprecationWarning`` pointing
+        callers at ``legacy_dashboard`` instead. Passing both
+        ``legacy_dashboard=True`` and ``react_dashboard=True`` is an
+        incoherent request and raises ``ValueError`` rather than being
+        silently resolved.
 
     Returns
     -------
@@ -439,8 +450,37 @@ def run_pipeline(
     Raises
     ------
     ValueError
-        If no input files are found, or none of them yield usable rows.
+        If no input files are found, or none of them yield usable rows. Also
+        raised if ``legacy_dashboard=True`` and ``react_dashboard=True`` are
+        passed together.
     """
+    # -- resolve the renderer choice up front, before any expensive work ----- #
+    # A contradictory call (asking for both legacy and React at once) must
+    # fail fast here, not after a multi-minute run has already happened.
+    if legacy_dashboard and react_dashboard is True:
+        raise ValueError(
+            "run_pipeline() received both legacy_dashboard=True and "
+            "react_dashboard=True, which is a contradictory request. Pass "
+            "only legacy_dashboard to choose the renderer."
+        )
+
+    if react_dashboard is None:
+        use_legacy = legacy_dashboard
+    else:
+        warnings.warn(
+            "run_pipeline(react_dashboard=...) is deprecated and will be "
+            "removed after this release cycle; use legacy_dashboard=True to "
+            "request the classic Python-assembled dashboard instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        log.warning(
+            "run_pipeline() called with the deprecated react_dashboard=%r "
+            "keyword; use legacy_dashboard=True instead.",
+            react_dashboard,
+        )
+        use_legacy = not react_dashboard
+
     cfg = cfg or AppConfig.default()
     cfg_paths = cfg.paths.ensure()
     started = time.perf_counter()
@@ -509,13 +549,14 @@ def run_pipeline(
         try:
             # Both renderers take the same arguments and write the same file,
             # so the choice is one name. The import stays inside the branch, as
-            # it always has been, so a --no-report run loads neither. The React
-            # renderer never imports Plotly at all — the charts are drawn in
-            # the browser, not here.
-            if react_dashboard:
-                from .dashboard import build_dashboard_react as build_dashboard
-            else:
+            # it always has been, so a --no-report run loads neither. React is
+            # the default as of PR 8; the legacy renderer is the opt-out via
+            # --legacy-dashboard. The React renderer never imports Plotly at
+            # all — the charts are drawn in the browser, not here.
+            if use_legacy:
                 from .dashboard import build_dashboard
+            else:
+                from .dashboard import build_dashboard_react as build_dashboard
 
             path = build_dashboard(
                 output_path=cfg_paths.report_dir / "dashboard.html",
@@ -532,7 +573,16 @@ def run_pipeline(
             )
             result.outputs["dashboard"] = path
         except Exception as exc:  # noqa: BLE001 - CSVs are already safely on disk
-            log.error("Dashboard rendering failed: %s", exc, exc_info=True)
+            renderer_name = "Legacy" if use_legacy else "React"
+            suggestion = (
+                " Re-run with --legacy-dashboard to fall back to the classic renderer."
+                if not use_legacy else ""
+            )
+            log.error(
+                "%s dashboard rendering failed: %s. CSV/data outputs are unaffected "
+                "and have already been written.%s",
+                renderer_name, exc, suggestion, exc_info=True,
+            )
 
     result.manifest = _write_manifest(cfg, result, paths)
     result.outputs["metrics_history"] = _append_history(cfg, result.manifest)
