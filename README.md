@@ -63,12 +63,17 @@ pip install -r requirements.txt
 detects it, logs the reason, and continues — you lose the Prophet model and
 SHAP attribution, not the run.
 
+No Node.js or npm install is needed to use the tool — the dashboard's React
+bundle ships pre-built. See [Dashboard](#dashboard) for what that means and
+when Node actually matters.
+
 ---
 
 ## Use
 
 ```bash
-python -m call_forecast run -v              # full pipeline
+python -m call_forecast run -v              # full pipeline, React dashboard (default)
+python -m call_forecast run --legacy-dashboard  # same run, classic Python-rendered dashboard
 python -m call_forecast run --only-if-changed   # retrain only if data changed
 python -m call_forecast check               # has new data arrived?
 python -m call_forecast watch --interval 300    # poll and retrain automatically
@@ -116,7 +121,7 @@ Written to `outputs/` (CSV), `reports/` (HTML) and `models/` (state):
 | `shap_forecast_contributions.csv` | Per-day SHAP values across the horizon |
 | `scenarios.csv` | Volume uplift → cost, wait, staffing, missed calls |
 | `daily_metrics.csv`, `daily_features.csv` | The modelling tables themselves |
-| `reports/dashboard.html` | Self-contained interactive dashboard |
+| `reports/dashboard.html` | Self-contained interactive dashboard — React by default (~1.95 MB), or the classic Python-rendered one (~5.08 MB) with `--legacy-dashboard` |
 | `models/manifest.json` | Run fingerprint, driving retrain detection |
 | `models/metrics_history.csv` | Accuracy across runs — watch this for drift |
 
@@ -135,6 +140,8 @@ data/*.csv
     ├─ explain.py     SHAP, permutation, native importance
     ├─ scenarios.py   Erlang-C/A capacity modelling
     └─ dashboard.py   one self-contained HTML file
+                      React bundle by default, or the Python-assembled
+                      page with --legacy-dashboard
 ```
 
 ### Features engineered
@@ -319,17 +326,74 @@ scripts can branch on it.
 
 ## Dashboard
 
-`reports/dashboard.html` is a single self-contained file — Plotly inlined, no
-CDN, no server. Open it, email it, or drop it on a share.
+`python -m call_forecast run` writes a **React** dashboard by default. Pass
+`--legacy-dashboard` (also available on `watch`) to get the classic
+Python-assembled one instead:
 
-Sections: data quality → at-a-glance KPIs → forecasts with interval bands →
-monthly cost → weekday×hour heatmap → model comparison → what drives the
-forecast → anomalies → scenarios.
+```bash
+python -m call_forecast run                     # React dashboard (default)
+python -m call_forecast run --legacy-dashboard  # classic Python-rendered dashboard
+```
+
+Both write the same path, `reports/dashboard.html`, from the same run, with the
+same nine sections. The difference that drove the migration is size:
+
+```
+1,946,364 B  reports/dashboard.html   React renderer   (default)
+5,082,765 B  reports/dashboard.html   Python renderer  (--legacy-dashboard)
+```
+
+Both are single self-contained files — Plotly (or the React bundle) inlined,
+no CDN, no server, no network access at run time. Open either from disk, email
+it, or drop it on a share.
+
+The React version adds two things the static page could not do: filtering by
+target and choosing a forecast horizon, both of which live in the URL fragment
+so a filtered view is linkable —
+
+```
+dashboard.html                              all three models, 90 days
+dashboard.html#model=total_cost             cost only
+dashboard.html#model=call_volume&horizon=30 volume, first 30 days
+```
+
+**`--legacy-dashboard` is retained for one release cycle and then removed.**
+`--react-dashboard` still parses but is deprecated and does nothing — React is
+what it used to select, and React is now the default. If you need the classic
+renderer past this release, say why now.
+
+Sections, same in both renderers: data quality → at-a-glance KPIs → forecasts
+with interval bands → monthly cost → weekday×hour heatmap → model comparison →
+what drives the forecast → anomalies → scenarios.
 
 Light and dark themes are both explicitly designed (not auto-inverted); the page
 follows your OS preference and the header toggle overrides it. Every chart has a
 table-view twin, so no value is reachable only by hovering. Alerts carry an icon
 and a text label, never colour alone.
+
+### Node.js — do you need it?
+
+**No, not to use the tool.** `pip install -r requirements.txt` and the CLI
+commands above are the whole story for generating a dashboard. There is no
+Node toolchain and no network access at run time.
+
+The React bundle is built ahead of time and **committed** to the package as
+`call_forecast/assets/dashboard_template.html`. Generating a dashboard
+substitutes the run's JSON payload into that committed template — that's the
+entire mechanism. The generated `reports/dashboard.html` then works standalone:
+open it from disk, email it, drop it on a share, same as the legacy one.
+
+Node is required **only** if you're modifying the frontend source or rebuilding
+the bundle, i.e. contributing under `frontend/`. That workflow is:
+
+```bash
+cd frontend
+npm ci
+npm run build
+python scripts/sync_template.py
+```
+
+See `frontend/README.md` for the full contributor workflow.
 
 ---
 
@@ -352,7 +416,7 @@ python -m pytest tests/ -q
 python -m pytest --doctest-modules call_forecast/ -q
 ```
 
-150 tests covering parsing, de-duplication, leakage, metric correctness against
+240+ tests covering parsing, de-duplication, leakage, metric correctness against
 hand-computed values, Erlang functions against textbook values, interval
 coherence, and a full end-to-end run. They use **synthetic** data with a planted
 weekly cycle and a planted anomaly, so they assert on properties under our

@@ -518,40 +518,79 @@ class TestRendererErrorPaths:
 #  6. Wiring                                                                  #
 # --------------------------------------------------------------------------- #
 class TestWiring:
-    def test_run_react_dashboard_defaults_false(self):
+    def test_run_defaults_to_react(self):
+        """
+        PR 8 is the deliberate flip: React becomes the default renderer, so a
+        plain ``run`` (no dashboard flag at all) must resolve to
+        ``legacy_dashboard is False``. This replaces PR 6's
+        ``test_run_react_dashboard_defaults_false``, which pinned the opposite
+        default on purpose so the flip could not happen by accident — this
+        test is the record that it *did* happen, deliberately, here.
+        """
         from call_forecast.cli import build_parser
 
         args = build_parser().parse_args(["run"])
-        assert args.react_dashboard is False
+        assert args.legacy_dashboard is False
 
-    def test_run_react_dashboard_flag_sets_true(self):
+    def test_run_legacy_dashboard_flag_sets_true(self):
         from call_forecast.cli import build_parser
 
-        args = build_parser().parse_args(["run", "--react-dashboard"])
-        assert args.react_dashboard is True
+        args = build_parser().parse_args(["run", "--legacy-dashboard"])
+        assert args.legacy_dashboard is True
 
-    def test_watch_react_dashboard_defaults_false(self):
+    def test_watch_defaults_to_react(self):
+        """See test_run_defaults_to_react — same flip, watch subcommand."""
         from call_forecast.cli import build_parser
 
         args = build_parser().parse_args(["watch"])
-        assert args.react_dashboard is False
+        assert args.legacy_dashboard is False
 
-    def test_watch_react_dashboard_flag_sets_true(self):
+    def test_watch_legacy_dashboard_flag_sets_true(self):
         from call_forecast.cli import build_parser
 
-        args = build_parser().parse_args(["watch", "--react-dashboard"])
-        assert args.react_dashboard is True
+        args = build_parser().parse_args(["watch", "--legacy-dashboard"])
+        assert args.legacy_dashboard is True
 
-    def test_run_pipeline_react_dashboard_defaults_false(self):
+    def test_deprecated_react_dashboard_flag_still_parses_and_selects_default(self):
         """
-        PR 6 explicitly must not flip the default renderer — the legacy
-        ``build_dashboard`` stays what a plain ``run_pipeline(cfg)`` call
-        produces until a later PR opts in.
+        Scheduled tasks and .bat files in the wild pass --react-dashboard.
+        Breaking that parse would break a scheduler for no gain, so the flag
+        must still be accepted — it just selects the (now-default) React
+        renderer rather than doing anything itself.
+        """
+        from call_forecast.cli import build_parser
+
+        args = build_parser().parse_args(["run", "--react-dashboard"])
+        assert args.legacy_dashboard is False
+
+    def test_both_dashboard_flags_together_is_a_argparse_error(self):
+        """The two flags are mutually exclusive: argparse itself must reject them."""
+        from call_forecast.cli import build_parser
+
+        with pytest.raises(SystemExit):
+            build_parser().parse_args(["run", "--react-dashboard", "--legacy-dashboard"])
+
+    def test_run_pipeline_legacy_dashboard_default_is_false(self):
+        """
+        Mirrors the CLI default: a bare ``run_pipeline(cfg)`` call must select
+        React, i.e. ``legacy_dashboard`` defaults to ``False``.
+        """
+        from call_forecast.pipeline import run_pipeline
+
+        default = inspect.signature(run_pipeline).parameters["legacy_dashboard"].default
+        assert default is False
+
+    def test_run_pipeline_react_dashboard_kwarg_defaults_to_none(self):
+        """
+        ``react_dashboard`` is the deprecated back-compat keyword; it must
+        default to ``None`` so ``run_pipeline`` can tell "not passed" (defer to
+        ``legacy_dashboard``) apart from an explicit ``True``/``False`` from a
+        pre-PR-8 call site.
         """
         from call_forecast.pipeline import run_pipeline
 
         default = inspect.signature(run_pipeline).parameters["react_dashboard"].default
-        assert default is False
+        assert default is None
 
     def test_legacy_build_dashboard_is_still_exported(self):
         """The legacy renderer must not have been removed by this migration."""
@@ -559,3 +598,189 @@ class TestWiring:
 
         assert "build_dashboard" in dashboard_module.__all__
         assert dashboard_module.build_dashboard is build_dashboard
+
+
+# --------------------------------------------------------------------------- #
+#  7. Renderer selection and failure isolation                                #
+# --------------------------------------------------------------------------- #
+@pytest.fixture(scope="module")
+def cheap_run_cfg(tmp_path_factory):
+    """
+    A minimal ``(cfg,)`` pair for exercising ``run_pipeline`` end to end.
+
+    Deliberately not the module-scoped ``run`` fixture above: that one calls
+    ``run_pipeline(..., build_report=False)`` and never renders a dashboard at
+    all, which is exactly the thing these tests need to observe. Trimmed
+    further than ``run`` too — a single model, fewer simulation paths and
+    fewer days — since these tests only need proof of *which* renderer ran
+    and that the CSVs survive a renderer failure, not a good forecast.
+    """
+    from conftest import _synthetic_calls
+
+    root = tmp_path_factory.mktemp("react_dashboard_selection")
+    data_dir = root / "data"
+    data_dir.mkdir()
+    _synthetic_calls(np.random.default_rng(23), days=90).to_csv(
+        data_dir / "export.csv", index=False
+    )
+
+    base = AppConfig.default()
+    cfg = dataclasses.replace(
+        base,
+        paths=PathsConfig(root=root),
+        models=dataclasses.replace(base.models, enabled=("seasonal_naive",)),
+        cv=CVConfig(initial_train_days=60, horizon=7, step=14, min_folds=2),
+        forecast=dataclasses.replace(base.forecast, n_simulations=50),
+    )
+    return cfg
+
+
+class TestRendererSelection:
+    """Which renderer a given call to ``run_pipeline`` invokes, and why."""
+
+    def test_default_run_calls_react_not_legacy(self, cheap_run_cfg, monkeypatch):
+        import call_forecast.dashboard as dashboard_module
+        from call_forecast.pipeline import run_pipeline
+
+        react_calls, legacy_calls = [], []
+        monkeypatch.setattr(
+            dashboard_module, "build_dashboard_react",
+            lambda *a, **k: react_calls.append(1) or (cheap_run_cfg.paths.resolved().report_dir / "dashboard.html"),
+        )
+        monkeypatch.setattr(
+            dashboard_module, "build_dashboard",
+            lambda *a, **k: legacy_calls.append(1) or (cheap_run_cfg.paths.resolved().report_dir / "dashboard.html"),
+        )
+        run_pipeline(cheap_run_cfg, force=True, build_report=True)
+        assert react_calls == [1]
+        assert legacy_calls == []
+
+    def test_legacy_dashboard_true_calls_legacy_not_react(self, cheap_run_cfg, monkeypatch):
+        import call_forecast.dashboard as dashboard_module
+        from call_forecast.pipeline import run_pipeline
+
+        react_calls, legacy_calls = [], []
+        monkeypatch.setattr(
+            dashboard_module, "build_dashboard_react",
+            lambda *a, **k: react_calls.append(1) or (cheap_run_cfg.paths.resolved().report_dir / "dashboard.html"),
+        )
+        monkeypatch.setattr(
+            dashboard_module, "build_dashboard",
+            lambda *a, **k: legacy_calls.append(1) or (cheap_run_cfg.paths.resolved().report_dir / "dashboard.html"),
+        )
+        run_pipeline(cheap_run_cfg, force=True, build_report=True, legacy_dashboard=True)
+        assert legacy_calls == [1]
+        assert react_calls == []
+
+    def test_deprecated_react_dashboard_true_still_selects_react_and_warns(
+        self, cheap_run_cfg, monkeypatch
+    ):
+        """The pre-PR-8 meaning of ``react_dashboard=True`` (pick React) must hold."""
+        import call_forecast.dashboard as dashboard_module
+        from call_forecast.pipeline import run_pipeline
+
+        react_calls = []
+        monkeypatch.setattr(
+            dashboard_module, "build_dashboard_react",
+            lambda *a, **k: react_calls.append(1) or (cheap_run_cfg.paths.resolved().report_dir / "dashboard.html"),
+        )
+        # match= is load-bearing: a bare pytest.warns(DeprecationWarning) around
+        # a full pipeline run is satisfied by any DeprecationWarning pandas or
+        # numpy happens to emit, so it would keep passing after our own warning
+        # was deleted. Pin it to the keyword it is about.
+        with pytest.warns(DeprecationWarning, match="react_dashboard"):
+            run_pipeline(cheap_run_cfg, force=True, build_report=True, react_dashboard=True)
+        assert react_calls == [1]
+
+    def test_deprecated_react_dashboard_false_still_selects_legacy(
+        self, cheap_run_cfg, monkeypatch
+    ):
+        """The pre-PR-8 meaning of ``react_dashboard=False`` (pick legacy) must hold."""
+        import call_forecast.dashboard as dashboard_module
+        from call_forecast.pipeline import run_pipeline
+
+        legacy_calls = []
+        monkeypatch.setattr(
+            dashboard_module, "build_dashboard",
+            lambda *a, **k: legacy_calls.append(1) or (cheap_run_cfg.paths.resolved().report_dir / "dashboard.html"),
+        )
+        with pytest.warns(DeprecationWarning, match="react_dashboard"):
+            run_pipeline(cheap_run_cfg, force=True, build_report=True, react_dashboard=False)
+        assert legacy_calls == [1]
+
+    def test_legacy_and_react_both_true_raises_value_error(self, cheap_run_cfg):
+        """
+        An incoherent request — legacy_dashboard=True *and* react_dashboard=True
+        — must not be silently resolved one way or the other; it is a bug in
+        the caller and should fail fast, before the expensive pipeline work.
+        """
+        from call_forecast.pipeline import run_pipeline
+
+        with pytest.raises(ValueError, match="legacy_dashboard.*react_dashboard|react_dashboard.*legacy_dashboard"):
+            run_pipeline(
+                cheap_run_cfg, force=True, build_report=True,
+                legacy_dashboard=True, react_dashboard=True,
+            )
+
+
+class TestRendererFailureIsolation:
+    """
+    A dashboard renderer raising must not take the CSV/data deliverables or
+    the manifest down with it — that is the whole point of the ``# noqa:
+    BLE001`` guard around the render call in ``pipeline.run_pipeline``. These
+    tests provoke that failure directly, for both renderers, rather than
+    trusting the try/except by inspection.
+    """
+
+    def _assert_csvs_survived(self, cfg):
+        out_dir = cfg.paths.resolved().output_dir
+        for name in ("forecast_daily.csv", "daily_metrics.csv"):
+            path = out_dir / name
+            assert path.exists(), f"{name} missing after renderer failure"
+            assert path.stat().st_size > 0, f"{name} is empty after renderer failure"
+
+    def test_react_renderer_failure_is_isolated(self, cheap_run_cfg, monkeypatch, caplog):
+        import call_forecast.dashboard as dashboard_module
+        from call_forecast.pipeline import run_pipeline
+
+        def _boom(*_a, **_k):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(dashboard_module, "build_dashboard_react", _boom)
+
+        with caplog.at_level("ERROR"):
+            result = run_pipeline(cheap_run_cfg, force=True, build_report=True)
+
+        assert result is not None
+        self._assert_csvs_survived(cheap_run_cfg)
+        assert "dashboard" not in result.outputs
+        assert result.manifest
+        assert (cheap_run_cfg.paths.resolved().model_dir / "manifest.json").exists()
+        assert any(
+            rec.levelname == "ERROR" and "React" in rec.getMessage()
+            for rec in caplog.records
+        )
+
+    def test_legacy_renderer_failure_is_isolated(self, cheap_run_cfg, monkeypatch, caplog):
+        import call_forecast.dashboard as dashboard_module
+        from call_forecast.pipeline import run_pipeline
+
+        def _boom(*_a, **_k):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(dashboard_module, "build_dashboard", _boom)
+
+        with caplog.at_level("ERROR"):
+            result = run_pipeline(
+                cheap_run_cfg, force=True, build_report=True, legacy_dashboard=True
+            )
+
+        assert result is not None
+        self._assert_csvs_survived(cheap_run_cfg)
+        assert "dashboard" not in result.outputs
+        assert result.manifest
+        assert (cheap_run_cfg.paths.resolved().model_dir / "manifest.json").exists()
+        assert any(
+            rec.levelname == "ERROR" and "Legacy" in rec.getMessage()
+            for rec in caplog.records
+        )

@@ -23,14 +23,15 @@ yesterday. It complements the existing descriptive tools on the Desktop
 **Status.** Feature-complete against the original spec and working end to end.
 **Not yet production-useful for point forecasts** — see §4.
 
-**Active work.** Migrating the HTML dashboard to React. Migration PRs 1–7 are
+**Active work.** Migrating the HTML dashboard to React. Migration PRs 1–8 are
 done — payload contract, frontend scaffold, primitives + non-chart sections,
 the Plotly base plus the three forecast charts, the remaining five charts,
-single-file bundling with pipeline integration, and the interactivity the
-Python page could not do. `python -m call_forecast run --react-dashboard` now
-writes the React `reports/dashboard.html` (1.95 MB, against 5.08 MB from the
-Python renderer). The legacy renderer is still the default. What is left is
-process: PR 8–9. See §8.
+single-file bundling with pipeline integration, the interactivity the Python
+page could not do, and the cutover. **As of PR 8 React is the default
+renderer**: a plain `python -m call_forecast run` writes the React
+`reports/dashboard.html` (1.95 MB, against 5.08 MB from the Python renderer).
+The legacy renderer is retained behind `--legacy-dashboard` for one release
+cycle. What is left is CI: PR 9. See §8.
 
 **Test suite health.** Two test files currently crash *during collection* on
 this machine for reasons unrelated to any recent change — see §4.
@@ -61,8 +62,9 @@ call-forecast/
 │   ├── anomalies.py        # robust z-scores + 4 standing alert rules
 │   ├── explain.py          # SHAP / permutation / native importance
 │   ├── scenarios.py        # Erlang B/C/A queueing + what-if
-│   ├── dashboard.py        # self-contained HTML report (being replaced, §8)
-│   │                       #   + build_dashboard_react(), the React renderer
+│   ├── dashboard.py        # build_dashboard_react() — the DEFAULT renderer
+│   │                       #   + build_dashboard(), legacy, --legacy-dashboard
+│   │                       #   retained one release cycle (§8)
 │   ├── assets/
 │   │   └── dashboard_template.html  # COMMITTED frontend build (§8) - generated
 │   ├── serialize.py        # run -> JSON payload; the frontend's contract
@@ -109,10 +111,15 @@ data/*.csv
   → forecast.generate_forecast()   refit on all history; calibrate; 90 days; simulate paths
   → explain / anomalies / scenarios
   → pipeline._write_outputs()  17 CSVs + outputs/dashboard_data.json
-  → dashboard.build_dashboard()        reports/dashboard.html   (default)
-    dashboard.build_dashboard_react()  reports/dashboard.html   (--react-dashboard)
+  → dashboard.build_dashboard_react()  reports/dashboard.html   (default)
+    dashboard.build_dashboard()        reports/dashboard.html   (--legacy-dashboard)
   → models/manifest.json       fingerprint for retrain detection
 ```
+
+Everything from `_write_outputs()` onward is the load-bearing part. Dashboard
+rendering sits inside a `try/except` that logs at ERROR and continues, so a
+renderer failure costs you the HTML and nothing else — the CSVs, the JSON
+payload and the manifest are all already on disk by then.
 
 Three targets throughout: `call_volume`, `avg_duration_sec`, `total_cost`.
 
@@ -175,7 +182,7 @@ than fitted on a handful of points and quietly trusted.
 
 - Full pipeline on real data (159 calls / 71 days): ~2.5 min, all outputs.
 - Full pipeline on `examples/sample_export.csv` (1,711 calls / 210 days).
-- 241 unit tests + 18 doctests pass.
+- 257 unit tests + 18 doctests pass (241 before PR 8).
 
 **Update, PR 6.** The collection crash below **did not reproduce** on this run:
 `python -m pytest tests/ -q` collected and passed all seven files plus the new
@@ -237,9 +244,9 @@ and three different models win. Re-check with `--data-dir examples`.
 python -m venv ~/.venvs/callforecast     # MUST be outside OneDrive (see §6)
 ~/.venvs/callforecast/Scripts/pip install -r requirements.txt
 
-python -m call_forecast run -v                    # full pipeline
+python -m call_forecast run -v                    # full pipeline, React report
 python -m call_forecast run --data-dir examples   # against the sample
-python -m call_forecast run --react-dashboard     # React report instead (§8)
+python -m call_forecast run --legacy-dashboard    # the old Python report (§8)
 python -m call_forecast check                     # exit 1 = retrain pending
 python -m call_forecast inspect                   # data quality only
 python -m call_forecast forecast call_volume
@@ -277,8 +284,13 @@ not in the repo. Drop exports into `data/` to use them.
   placeholders. The staffing column is fiction until they are set.
 
 ### Technical debt
-- `dashboard.py` is 1,152 lines and does layout, theming and figure
-  construction. Split figures from HTML assembly if it grows further.
+- `dashboard.py` is ~1,440 lines and does layout, theming and figure
+  construction. As of PR 8 most of it is the *legacy* renderer, scheduled for
+  removal after one release cycle — so the "split figures from HTML assembly"
+  refactor in §7 item 4 is now probably wasted work. Delete rather than split,
+  once the release cycle is up. **`THEME` and `_stylesheet` must survive that
+  deletion**: `scripts/gen_tokens.py` generates `frontend/src/theme/tokens.css`
+  from `THEME`, and `tests/test_tokens.py` imports both.
 - A full run is ~2.5 min, dominated by Prophet refitting per CV fold. No
   caching of per-fold fits.
 - `explain.py` catches broad `Exception` in several places — deliberate
@@ -365,10 +377,12 @@ PR-sized, roughly independent, most valuable first.
    and invalidation on config change. Target: halve the wall time. Assert
    leaderboard numbers are unchanged.
 
-4. **Split `dashboard.py` into `dashboard/figures.py` and
-   `dashboard/layout.py`.** Pure refactor — figure construction separate from
-   HTML/CSS assembly, `build_dashboard()` signature unchanged. Existing
-   dashboard tests must pass untouched.
+4. ~~**Split `dashboard.py` into `dashboard/figures.py` and
+   `dashboard/layout.py`.**~~ **Superseded by PR 8.** The bulk of that file is
+   now the *legacy* renderer, retained one release cycle and then deleted, so
+   splitting it is work with a scheduled expiry date. Delete instead when the
+   cycle is up — keeping `THEME` and `_stylesheet`, which `scripts/gen_tokens.py`
+   and `tests/test_tokens.py` depend on.
 
 5. **Add `--from` / `--to` date filtering to the CLI.** Restrict ingestion to a
    window for backtesting a past period or excluding a known-bad stretch.
@@ -823,6 +837,93 @@ reload. A fresh load at any width is correct.
 build artefact had to. 1,674,436 bytes against the 1,700,000-byte budget: 25 KB
 of slack, down from 29 KB.
 
+**PR 8 — the cutover** (this branch, on `feature/react-dashboard-default`).
+React is the default renderer. The legacy Python page is retained behind
+`--legacy-dashboard` for one release cycle. No frontend code changed; this PR
+is entirely CLI, pipeline, docs and tests.
+
+```
+python -m call_forecast run                     1,807,371 B   React     (default)
+python -m call_forecast run --legacy-dashboard  5,082,759 B   Python    (-64.4%)
+```
+
+Both numbers are from the real 71-day export. The React figure is below the
+1.95 MB measured on the 210-day sample because the payload is what varies —
+132 KB here against 275 KB there.
+
+**The renderer choice is still one boolean, and the deprecation is the whole
+design.** `run_pipeline` gained `legacy_dashboard: bool = False` and kept
+`react_dashboard` as `bool | None = None`. That `None` is load-bearing: it is
+what lets the function tell "not passed" (defer to `legacy_dashboard`) apart
+from an explicit `True`/`False` from a pre-PR-8 caller, and an explicit value
+still decides outright with its original meaning — `react_dashboard=True` picks
+React, `react_dashboard=False` picks legacy, exactly as both did before. A
+`DeprecationWarning` points callers at the new keyword. `legacy_dashboard=True`
+together with `react_dashboard=True` is incoherent and raises `ValueError`
+*before* any expensive work, rather than being silently resolved one way.
+`README.md` documents `run_pipeline` under "From Python", so this is a public
+signature and breaking it was not on the table.
+
+The same shape on the CLI: `--legacy-dashboard` is new, `--react-dashboard`
+still parses but is a documented no-op that prints a deprecation notice to
+stderr. Keeping it alive is not politeness — scheduled tasks and `.bat` files
+pass it, and `unrecognized arguments` would take a scheduler down for no gain.
+The two flags sit in an `add_mutually_exclusive_group()`, so passing both is
+argparse's error to report rather than ours to resolve. `Run_Forecast.bat`
+passes no dashboard flag at all, so the double-click path picked up the smaller
+dashboard for free.
+
+***There is deliberately no automatic fallback from React to legacy.*** It is
+the obvious-looking safety net and it is wrong here: a silent fallback would
+emit a 5 MB page nobody asked for and, worse, would mask a stale or missing
+committed template — the exact failure `scripts/sync_template.py --check`
+exists to catch. The renderer logs at ERROR, names itself, states that the CSVs
+are already written, and tells the operator to re-run with `--legacy-dashboard`
+if they want the old page. Recovery is a decision, not a default.
+
+**The failure isolation this PR was asked to guarantee already existed** — PR 6
+wrapped the render call and put the manifest write after it. What PR 8 adds is
+proof. Verified end to end by moving the committed template aside, which is the
+realistic failure (a build artefact that never landed in a checkout or wheel)
+rather than a synthetic raise: the run logged the ERROR, **exited 0**, and left
+16 CSVs, `outputs/dashboard_data.json` and `models/manifest.json` on disk with
+no `reports/dashboard.html`. The template was restored and
+`sync_template.py --check` re-confirmed byte-identical.
+
+**Tests: 257 backend, up from 241.** `test_react_dashboard.py` went 24 → 34 and
+`tests/test_docs.py` is new (6). The two PR 6 tests that pinned the *old*
+default — `test_run_react_dashboard_defaults_false` and
+`test_run_pipeline_react_dashboard_defaults_false` — were written so the flip
+could not happen by accident; their replacements assert the new default and say
+so in their docstrings, which is the record that the flip was deliberate rather
+than a loosened assertion. New coverage: renderer selection for all five
+argument combinations, and failure isolation for *both* renderers asserting the
+CSVs survive, `"dashboard"` is absent from `result.outputs`, the manifest is
+still written, and the ERROR names the renderer.
+
+*`pytest.warns(DeprecationWarning)` needed a `match=`.* Around a full pipeline
+run a bare one is satisfied by any `DeprecationWarning` pandas or numpy happens
+to emit, so it would have kept passing after our own warning was deleted. Both
+call sites pin it to `react_dashboard`.
+
+**The frontend is untouched and that is checkable, not asserted.** `npm test`
+is unchanged at 130, `npm run build` reproduces `dist/index.html` at 1,674,436
+bytes, and `sync_template.py --check` reports the committed template already up
+to date — so PR 8 required no re-sync, which is the evidence that the cutover
+was pure wiring.
+
+**Verified** from `file://` on the real export: nine section headings in
+`build_dashboard()` order, 11 figures, 16 tables, the rail carrying All plus
+three targets, three horizon selects, the inline payload script, and no console
+output. 11 rather than 12 figures because `avg_duration_sec` has every learned
+model skipped below the `min_observations` floor on this data, so its
+leaderboard and importance charts are correctly omitted — the PR 5 behaviour,
+not a regression.
+
+**Unverified, unchanged from PR 5–7 and still the embedded browser rather than
+the code.** Live resizing and keyboard activation of the rail. PR 9 still owns
+one pass in a real browser.
+
 ### Frontend architecture
 
 **Stack.** Vite 7 · React 19 · TypeScript 5.9 · Plotly (cartesian dist) · CSS
@@ -889,9 +990,6 @@ the page into horizontal scroll. Below 900px the rail collapses to a
 horizontally scrolling strip; the page itself never scrolls sideways.
 
 ### Remaining steps
-
-**PR 8 — flip the default, retire `dashboard.py`.** Keep `--legacy-dashboard`
-for one release.
 
 **PR 9 — CI.** Node build + typecheck + pytest, plus
 `python scripts/sync_template.py --check` on a **pinned** Node version so a
