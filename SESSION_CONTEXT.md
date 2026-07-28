@@ -23,15 +23,17 @@ yesterday. It complements the existing descriptive tools on the Desktop
 **Status.** Feature-complete against the original spec and working end to end.
 **Not yet production-useful for point forecasts** — see §4.
 
-**Active work.** Migrating the HTML dashboard to React. Migration PRs 1–8 are
-done — payload contract, frontend scaffold, primitives + non-chart sections,
+**Active work.** Migrating the HTML dashboard to React. **Migration PRs 1–9 are
+done** — payload contract, frontend scaffold, primitives + non-chart sections,
 the Plotly base plus the three forecast charts, the remaining five charts,
 single-file bundling with pipeline integration, the interactivity the Python
-page could not do, and the cutover. **As of PR 8 React is the default
+page could not do, the cutover, and CI. **As of PR 8 React is the default
 renderer**: a plain `python -m call_forecast run` writes the React
 `reports/dashboard.html` (1.95 MB, against 5.08 MB from the Python renderer).
 The legacy renderer is retained behind `--legacy-dashboard` for one release
-cycle. What is left is CI: PR 9. See §8.
+cycle. PR 9 adds `.github/workflows/ci.yml`, which is what now holds the
+committed template to its source. The migration is complete; §9 has the CI
+architecture and §5 the remaining product work.
 
 **Test suite health.** Two test files currently crash *during collection* on
 this machine for reasons unrelated to any recent change — see §4.
@@ -88,9 +90,12 @@ call-forecast/
 │   │   ├── types/          # ambient module decl for the Plotly dist bundle
 │   │   └── styles/
 │   └── README.md           # frontend conventions and workflows
+├── .github/workflows/
+│   └── ci.yml              # backend + frontend + dashboard-artefact jobs (§9)
 ├── scripts/
 │   ├── gen_tokens.py       # THEME -> frontend/src/theme/tokens.css
-│   └── sync_template.py    # frontend/dist -> call_forecast/assets (+ --check)
+│   ├── sync_template.py    # frontend/dist -> call_forecast/assets (+ --check)
+│   └── check_bundle_size.py # 2 MB budget on the generated dashboard (§9)
 ├── tests/                  # unit + doctests
 ├── examples/
 │   └── sample_export.csv   # 1,711 synthetic calls over 210 days
@@ -182,7 +187,7 @@ than fitted on a handful of points and quietly trusted.
 
 - Full pipeline on real data (159 calls / 71 days): ~2.5 min, all outputs.
 - Full pipeline on `examples/sample_export.csv` (1,711 calls / 210 days).
-- 257 unit tests + 18 doctests pass (241 before PR 8).
+- 263 unit tests + 18 doctests pass (257 before PR 9, 241 before PR 8).
 
 **Update, PR 6.** The collection crash below **did not reproduce** on this run:
 `python -m pytest tests/ -q` collected and passed all seven files plus the new
@@ -411,10 +416,11 @@ PR-sized, roughly independent, most valuable first.
    fixture with direction data, assert `inbound_outbound_ratio_prev` survives,
    and add inbound/outbound split charts to the dashboard.
 
-10. **Add GitHub Actions CI.** Run pytest + doctests on push and PR against
-    Python 3.10/3.11/3.12 on `windows-latest` and `ubuntu-latest`. Install
-    without the optional extras on one matrix leg to prove Prophet/SHAP
-    degradation works.
+10. ~~**Add GitHub Actions CI.**~~ **Done in PR 9** — see §9. Delivered smaller
+    than described here: Python 3.10 and 3.12 on `ubuntu-latest` only, and no
+    extras-free leg. Both reductions are argued in §9 under "What was
+    deliberately left out"; the extras-free leg in particular is still worth
+    adding the day the graceful-degradation path is changed.
 
 ---
 
@@ -991,12 +997,18 @@ horizontally scrolling strip; the page itself never scrolls sideways.
 
 ### Remaining steps
 
-**PR 9 — CI.** Node build + typecheck + pytest, plus
-`python scripts/sync_template.py --check` on a **pinned** Node version so a
-stale committed template fails the build. Folds into §7 item 10. Two things PR 7
-left for it: the DOM test environment is already in place and wants verifying in
-CI rather than re-deciding, and the two unverified behaviours above — keyboard
-activation of the rail, and live resizing — want one pass in a real browser.
+**PR 9 — CI. Done**; the architecture is §9. It wires
+`npm ci && npm run typecheck && npm test && npm run build`, then
+`python scripts/sync_template.py --check` on a **pinned** Node 24, and pytest on
+Python 3.10/3.12. PR 7's DOM test environment is verified rather than
+re-decided: `npm test` runs all 130 tests, jsdom docblocks included, on a
+machine that is not this developer's.
+
+**Still outstanding, and not a CI job.** The two behaviours PRs 5–8 could not
+verify — keyboard activation of the rail, and live resizing — still want one
+pass in a real browser. CI cannot supply it: both failures are properties of a
+real browser's event loop, and asserting them in headless CI would mean adding
+Playwright, which is a larger commitment than the two facts justify.
 
 ### Frontend conventions
 
@@ -1022,3 +1034,177 @@ activation of the rail, and live resizing — want one pass in a real browser.
   correctness back on the `ResizeObserver`.
 - `frontend/README.md` has the workflows, including regenerating the fixture
   (which comes from `examples/`, never from `data/` — it is committed).
+
+---
+
+## 9. Continuous Integration
+
+**Added by PR 9** (branch `feature/github-actions-ci`). One workflow,
+`.github/workflows/ci.yml`, on `pull_request` and on `push` to `main`. Nothing
+in this PR touches application code: it is validation only.
+
+### The four questions
+
+CI exists to answer these, in the order a regression would be noticed:
+
+```
+Every PR
+   |
+   +-- Can Python still generate correct analytics?   backend    (2 legs)
+   +-- Can React still compile?                       frontend
+   +-- Can the offline dashboard still be built?      frontend
+   +-- Did someone forget to regenerate the template? dashboard
+```
+
+### Jobs
+
+| Job | Runner | Pinned to | Runs |
+|---|---|---|---|
+| `backend` | ubuntu-latest | Python 3.10, 3.12 | `pip install -r requirements.txt`, `pytest tests/`, doctests |
+| `frontend` | ubuntu-latest | Node 24 (`frontend/.nvmrc`) | `npm ci`, `npm run typecheck`, `npm test`, `npm run build`, upload `dist/index.html` |
+| `dashboard` | ubuntu-latest | Python 3.12 | `sync_template.py --check`, `check_bundle_size.py` |
+
+`dashboard` `needs: frontend` and consumes the uploaded bundle, so the
+staleness comparison runs against the bytes CI just built rather than a second
+rebuild in a second environment. It installs **nothing** — both scripts are
+stdlib-only, which is why that separation is cheap.
+
+**Why `dashboard` is its own job and not two more steps on `frontend`.** It
+needs Python and no Node; `frontend` needs Node and no Python. A PR also gets a
+clearer answer from a red "Dashboard artefact" than from a build job that failed
+at some step after the build.
+
+### The two migration safeguards
+
+**Stale template.** `python scripts/sync_template.py --check`, which has existed
+since PR 6 and had no enforcement until now. The failure it catches: change a
+component, confirm it in the dev server, commit without re-running the sync —
+after which every `python -m call_forecast run` renders the *previous* frontend
+and nothing anywhere reports a problem. **CI never writes the file.** It fails
+and names the one command that fixes it. Verified by injecting a mutation into
+the committed template: exit 1 with "the committed template does not match the
+current frontend build", and clean again after `git checkout`.
+
+**Bundle size.** New `scripts/check_bundle_size.py`, enforcing 2,000,000 bytes
+on the *generated* dashboard with a message that states current size, allowed
+size, the overage and the likely causes in order. It never fails silently — and
+`tests/test_bundle_size_check.py` (6 tests) drives that failing path, because a
+gate that cannot fail reports green forever and stops being read. Those tests
+also pin the script's budget to the 2,000,000 the render test asserts, and its
+marker and script wrapper to `dashboard.PAYLOAD_MARKER`, so the projection
+cannot quietly stop modelling the substitution it claims to model.
+
+The interesting part is that it does not run the pipeline. Rendering is a single
+string substitution (`build_dashboard_react`), so the generated size is
+arithmetic: template, minus the marker, plus the script wrapper, plus the
+payload. Substituting the committed 210-day sample payload — the largest the
+project has — projects **1,949,710 bytes against PR 6's measured 1,946,364**, a
+0.2% error, in milliseconds and with no dependencies.
+
+That is the *cheap* check. The honest one already existed and still runs, in the
+`backend` job: `test_generated_dashboard_stays_under_budget` renders a real
+dashboard from a trimmed run and asserts the file itself. The two are
+complementary — the fast one catches a dependency bloating the bundle on every
+PR in seconds; the slow one catches the serialiser growing. Verified by
+inflating `frontend/dist/index.html` by 108 KB: the size gate failed at 2.06 MB
+and `sync_template.py --check` independently failed its own 1.7 MB template
+budget. `npm run build` restored the byte-identical bundle.
+
+### Why the pins are load-bearing
+
+**Node 24, from `frontend/.nvmrc`** (`node-version-file`, so `nvm use` and CI
+read the same number). The single-file build is byte-reproducible for a fixed
+lockfile and Node major, and is **not** guaranteed across majors — and
+`sync_template.py --check` compares bytes. Bumping `.nvmrc` therefore means
+re-running `scripts/sync_template.py` and committing the result *in the same
+PR*. A diff after a Node upgrade is a signal to re-sync, not a bug.
+
+**Python 3.10 and 3.12** — the ends of the supported range declared in
+`pyproject.toml`, and nothing in between. This is the matrix that catches the
+environment drift §4 documents.
+
+**`npm ci`, not `npm install`** — installs the lockfile exactly and fails when
+it disagrees with `package.json`.
+
+### What was deliberately left out
+
+The temptation on a CI PR is to build the whole platform. This repository ships
+as a wheel that people `pip install` and run from a CLI; the only things CI has
+to protect are that the analytics are right and that the committed build
+artefact matches its source. So there is **no** Docker build, no deployment, no
+release automation, no coverage upload, no security scanning and no dependency
+bot. Each is defensible later and none of them is what a PR here is waiting to
+hear.
+
+Three narrower omissions, with reasons:
+
+- **No Windows leg**, though this is a Windows shop. It doubles the matrix, and
+  the one Windows-specific problem on record (§4's `access violation` during
+  collection) is a *local toolchain* fault — pytest 9 calling
+  `ascii_escaped()` on an `np.nan` parametrize value — that a green Windows CI
+  would not have prevented and a red one would teach people to ignore. Worth
+  adding once §4 item 1 or 2 is actually done.
+- **No extras-free leg.** §7 item 10 wanted one to prove the Prophet/SHAP
+  degradation path. Worth adding the day that path is changed; it is not worth
+  a permanent second install of the heaviest dependencies to re-assert
+  behaviour that is already unit-tested.
+- **No browser test.** The two behaviours PRs 5–8 could not verify — keyboard
+  activation of the rail, live resizing — need a real browser, and asserting
+  them means Playwright. Larger than the two facts justify. Still a manual pass.
+
+### Known limitations
+
+1. **The byte-comparison is cross-platform on faith.** The template was built on
+   Windows/Node 24 and `--check` will run on ubuntu/Node 24. Nothing in the
+   build should be OS-dependent (Vite normalises paths; `sync_template.py`
+   normalises CRLF on read), but this has not been observed. **If the first CI
+   run fails `sync_template.py --check` with no frontend change in the PR, that
+   is the cause** — re-sync from a Linux build and commit, rather than assuming
+   the guard is wrong.
+2. **`check_bundle_size.py` projects, it does not measure.** It is exactly right
+   about the template and approximately right about the payload: the committed
+   fixture is a serialised payload, not the byte-identical output of
+   `serialize.dumps()` for a given run (hence the 3.3 KB / 0.2% gap). The real
+   measurement is the pytest one.
+3. **Headroom is 50,290 bytes**, ~2.5%, and the payload is what grows as history
+   accumulates. The lever when it breaches is a custom Plotly partial bundle
+   (§8), not a smaller payload.
+4. **`npm ci` on npm 11 skips esbuild's postinstall** (`allow-scripts`) and
+   prints a warning. The build works regardless — verified locally — because the
+   binary ships in the platform package. If a future esbuild needs that script,
+   the failure will be at build time and loud.
+
+### Local equivalents
+
+CI runs nothing a developer cannot. Before opening a PR:
+
+```bash
+python -m pytest tests/ -q
+python -m pytest --doctest-modules call_forecast/ -q
+
+cd frontend && npm ci && npm run typecheck && npm test && npm run build
+
+python scripts/sync_template.py --check
+python scripts/check_bundle_size.py
+```
+
+### Verified locally, PR 9
+
+Python 3.12.10 · pytest 9.1.1 · Node 24.18.0 · npm 11.18.0.
+
+- `pytest tests/ -q` — **263 passed** (257 before this PR, plus the 6 new size-gate
+  tests), exit 0. §4's collection crash did not reproduce on either run;
+  nothing was changed to address it and it remains intermittent. **No existing
+  test was modified or weakened.**
+- `pytest --doctest-modules call_forecast/ -q` — **18** (17 passed, 1 skipped).
+- `npm ci` · `npm run typecheck` · `npm test` (**130 passed**) · `npm run build`
+  → `dist/index.html` at **1,674,436 bytes**, byte-identical to the committed
+  template.
+- `sync_template.py --check` and `gen_tokens.py --check` — both up to date.
+- Both failure injections above, restored afterwards; `git status` clean apart
+  from the new files.
+
+`.gitignore` was checked and needed no change: `node_modules/`, `dist/`,
+`frontend/dist/`, `outputs/`, `reports/` and `*.egg-info/` were already ignored,
+and the two generated files that *are* committed on purpose — the dashboard
+template and `tokens.css` — each have a `--check` guarding them.

@@ -433,6 +433,43 @@ caught here:
 
 ---
 
+## Continuous integration
+
+Every pull request (and every push to `main`) runs
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml): the Python suite on
+3.10 and 3.12, the frontend typecheck / unit tests / production build on a
+pinned Node 24, and two guards on the shipped dashboard artefact — that the
+committed template still matches the frontend source, and that the generated
+report stays under 2 MB.
+
+**Run the same checks before opening a PR.** CI runs nothing you cannot run
+locally:
+
+```bash
+python -m pytest tests/ -q
+```
+
+```bash
+python -m pytest --doctest-modules call_forecast/ -q
+```
+
+```bash
+cd frontend && npm ci && npm run typecheck && npm test && npm run build
+```
+
+```bash
+python scripts/sync_template.py --check && python scripts/check_bundle_size.py
+```
+
+The last line is the one that catches the mistake nobody notices otherwise: if
+you changed anything under `frontend/`, the committed
+`call_forecast/assets/dashboard_template.html` is now stale, and every later run
+would render the *previous* frontend without reporting a problem. The fix is
+`python scripts/sync_template.py`, committed in the same PR. CI never modifies
+files — it only tells you which command to run.
+
+---
+
 ## Known limitations
 
 - **90-day intervals are extrapolated** past the 7-day CV horizon.
