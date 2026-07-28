@@ -48,9 +48,18 @@ export function PlotlyChart({ figure, description, id }: PlotlyChartProps) {
   const draw = useCallback(() => {
     const node = containerRef.current;
     // Zero width means the chart is inside something hidden — a collapsed
-    // `<details>`, or the filtered-out half of the rail once PR 7 lands.
-    // Drawing then produces a graph with no usable dimensions; the observer
-    // below fires again when it is revealed.
+    // `<details>`, or a card the rail has filtered off the page. Drawing then
+    // produces a graph with no usable dimensions, so bail and let the reveal
+    // trigger the redraw.
+    //
+    // **Nothing needs to remember that a draw was skipped.** An unrendered
+    // element has a 0x0 border box, which a `ResizeObserver` reports like any
+    // other size, so revealing it delivers a notification even when it comes
+    // back at exactly the width it had before. That fires `drawRef.current`,
+    // which React has already re-pointed at the closure over the *current*
+    // `figure` — so a figure that changed during the hidden window (a theme
+    // toggle, say) is the one that gets drawn, with no queued-draw flag to
+    // keep in step.
     if (node === null || node.clientWidth === 0) return;
 
     void Plotly.react(
@@ -75,11 +84,18 @@ export function PlotlyChart({ figure, description, id }: PlotlyChartProps) {
   // notifications are unreliable. Redrawing twice is harmless: `Plotly.react()`
   // diffs, and an unchanged width is a no-op.
   //
-  // NOTE: neither path could be exercised in the embedded browser used to
-  // verify the rest of this component — it changes the viewport without
-  // dispatching `resize`, and its `ResizeObserver` never fires even for a
-  // directly restyled element. A fresh load at any width is correct, and both
-  // triggers are standard; live resizing wants a check in a real browser.
+  // NOTE: `PlotlyChart.test.tsx` exercises both paths under jsdom — which has
+  // no native `ResizeObserver` at all — with a fake installed on `globalThis`
+  // whose callback the tests fire on demand. That pins this component's half
+  // of the contract: given a notification, it redraws, at the real width, with
+  // the current figure. What a fake cannot prove is the browser's half, that a
+  // notification actually arrives on reveal and on a live window resize. That
+  // still wants a check in a real browser.
+  //
+  // It is not what PR 7's filtering depends on, though: filtering unmounts a
+  // card rather than hiding it, so a chart that comes back mounts fresh and
+  // measures itself. Hiding a chart with `display: none` instead would put the
+  // page's correctness on the observer — which is the reason not to.
   useEffect(() => {
     const node = containerRef.current;
     if (node === null) return;

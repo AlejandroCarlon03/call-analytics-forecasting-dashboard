@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { EvaluationSection, LeaderboardRow, TargetMeta } from '../../data/types';
 import { deriveColumns } from '../../lib/columns';
 import { buildLeaderboardFigure } from '../../lib/chart/figures';
+import { isTargetVisible } from '../../lib/selection';
 import { PlotlyChart, useChartPalette } from '../charts';
 import { Callout, Card, DataTable, Section } from '../primitives';
 
@@ -102,6 +103,7 @@ interface ModelComparisonSectionProps {
   evaluations: Record<string, EvaluationSection>;
   targets: readonly string[];
   targetMeta: Record<string, TargetMeta>;
+  selectedTarget: string | null;
 }
 
 /**
@@ -114,13 +116,15 @@ export function ModelComparisonSection({
   evaluations,
   targets,
   targetMeta,
+  selectedTarget,
 }: ModelComparisonSectionProps) {
   const present = targets
     .map((target) => evaluations[target])
     .filter(
       (evaluation): evaluation is EvaluationSection =>
         evaluation !== undefined && evaluation.leaderboard.length > 0,
-    );
+    )
+    .filter((evaluation) => isTargetVisible(evaluation.target, selectedTarget));
 
   if (present.length === 0) return null;
 

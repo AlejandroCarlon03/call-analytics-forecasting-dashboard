@@ -1,0 +1,32 @@
+/* A small toolbar above a card's chart. No equivalent in dashboard.py — the
+   Python report had no controls at all. */
+
+.horizon {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.label {
+  font-size: 13px;
+  color: var(--ink2);
+}
+
+.select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  /* The card is `--surface`; the control sits a step back from it. */
+  background: var(--page);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+}

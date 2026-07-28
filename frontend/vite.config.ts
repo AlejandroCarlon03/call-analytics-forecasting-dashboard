@@ -44,12 +44,26 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
   },
-  // The figure builders are pure functions over payload rows, so the tests
-  // need neither a DOM nor a real Plotly. Keeping it that way is deliberate:
-  // it is what makes the silent chart failures (a lost category axis, a marker
-  // symbol that reverted to a circle) assertable at all.
+  /**
+   * The figure builders are pure functions over payload rows, so the tests
+   * need neither a DOM nor a real Plotly. Keeping it that way is deliberate:
+   * it is what makes the silent chart failures (a lost category axis, a marker
+   * symbol that reverted to a circle) assertable at all.
+   *
+   * PR 7 adds the first tests that genuinely cannot be pure — keyboard
+   * activation of the rail, `aria-current` moving, and a chart that was hidden
+   * redrawing at a real width once revealed. Those are `.test.tsx` and opt into
+   * a DOM with a `@vitest-environment jsdom` docblock at the top of the file;
+   * `node` stays the default, so every existing test still runs without one.
+   *
+   * `globals: true` is for `@testing-library/react`'s automatic cleanup, which
+   * registers itself on a global `afterEach` and silently does nothing without
+   * one — leaving each test to render into the previous test's DOM. Test files
+   * still import `describe`/`it`/`expect` from `vitest` explicitly.
+   */
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    globals: true,
+    include: ['src/**/*.test.{ts,tsx}'],
   },
 });
