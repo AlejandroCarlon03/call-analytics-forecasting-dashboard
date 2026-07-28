@@ -10,6 +10,7 @@ import {
   AnomaliesSection,
   AtAGlanceSection,
   DataQualitySection,
+  ForecastsSection,
   ScenariosSection,
 } from './components/sections';
 import styles from './App.module.css';
@@ -88,8 +89,8 @@ export function App() {
 
   const handleSelect = (id: string) => {
     setActiveId(id);
-    // Scroll behaviour matches the Python rail. Once the cards exist (PR 4)
-    // this finds them; until then it is a no-op rather than an error.
+    // Scroll behaviour matches the Python rail. The forecast cards carry these
+    // ids; filtering the page to one model is PR 7.
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
@@ -108,10 +109,17 @@ export function App() {
         <DashboardFooter config={state.payload.config} generatedAt={state.payload.generatedAt} />
       }
     >
-      {/* Page order matches `build_dashboard()`. The chart-bearing sections
-          between "At a glance" and "Anomalies" are still pending (PRs 4-5). */}
+      {/* Page order matches `build_dashboard()`. The remaining chart-bearing
+          sections between "Forecasts" and "Anomalies" are pending (PR 5). */}
       <DataQualitySection ingestion={state.payload.ingestion} />
       <AtAGlanceSection payload={state.payload} />
+      <ForecastsSection
+        forecasts={state.payload.forecasts}
+        targets={state.payload.targets}
+        targetMeta={state.payload.targetMeta}
+        daily={state.payload.daily}
+        horizons={state.payload.config.forecast.horizons}
+      />
       <PendingSections payload={state.payload} />
       <AnomaliesSection
         anomalies={state.payload.anomalies}

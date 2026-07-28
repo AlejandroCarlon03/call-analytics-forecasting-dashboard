@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 /**
@@ -25,5 +25,13 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+  },
+  // The figure builders are pure functions over payload rows, so the tests
+  // need neither a DOM nor a real Plotly. Keeping it that way is deliberate:
+  // it is what makes the silent chart failures (a lost category axis, a marker
+  // symbol that reverted to a circle) assertable at all.
+  test: {
+    environment: 'node',
+    include: ['src/**/*.test.ts'],
   },
 });

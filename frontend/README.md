@@ -20,6 +20,7 @@ npm run dev
 | `npm run dev` | Vite dev server on http://localhost:5173 |
 | `npm run build` | Typecheck, then build to `dist/` |
 | `npm run typecheck` | `tsc --noEmit` only |
+| `npm test` | Vitest, once through |
 | `npm run preview` | Serve the built `dist/` |
 
 ## Where the data comes from
@@ -77,10 +78,57 @@ components/primitives/   Card, Section, StatTile + TileGrid, Callout,
                          `_table_view` helpers in dashboard.py.
 components/sections/     One file per dashboard section.
 components/shell/        Header, rail, footer, theme toggle, layout.
+components/charts/       PlotlyChart wrapper + useChartPalette.
+lib/chart/               Palette, base layout, pure figure builders.
 ```
 
 Sections compose primitives and never write their own table, tile or callout
 markup.
+
+## Charts
+
+A chart is two pieces: a **pure builder** in `lib/chart/figures/` that turns
+payload rows plus a palette into `{data, layout}`, and `PlotlyChart`, which is
+the only place Plotly is touched. Sections call the builder and render the
+result; they never call Plotly themselves.
+
+The split is what makes charts testable. The failures that matter here are
+silent — a monthly axis that stopped being categorical still renders, it just
+quietly drops the partial-month bars — so they are asserted against a plain
+object rather than looked at.
+
+Every chart carries an `aria-label` and ships a `TableView` with the same
+numbers. That is not optional: a chart without one is unreadable to a screen
+reader and un-copyable into a spreadsheet.
+
+### Theming
+
+Colours come from `useChartPalette()`, which reads the resolved CSS custom
+properties. Never a literal, and never `useTheme().mode`:
+
+**`mode` changes one render before the palette does.** `ThemeProvider` writes
+`data-theme` in an effect, and React flushes child effects before parent
+effects, so anything keyed on `mode` reads the *previous* theme's variables and
+then never runs again — charts stay in the old palette on a page that has
+already switched. `useChartPalette` subscribes to the DOM instead
+(`MutationObserver` on `data-theme`, plus the `prefers-color-scheme` query for
+viewers following the OS). A theme change produces a new palette, a new figure,
+and a `Plotly.react()` diff onto the existing graph.
+
+### Sizing
+
+`PlotlyChart` passes an explicit width and redraws on resize. Plotly's own
+resize paths (`config.responsive`, `Plots.resize()`) both work by deleting
+`layout.width` **and** `layout.height` and re-autosizing, which would discard
+the heights the figures set.
+
+### The Plotly dependency
+
+`plotly.js-cartesian-dist-min` — scatter, bar and heatmap, ~1.1 MB, versus 4.9
+MB for the full bundle. It ships no types; `src/types/plotly.d.ts` declares the
+two functions used. `@types/plotly.js` is deliberately not installed: it
+describes the full library, so it would happily typecheck traces this bundle
+cannot draw.
 
 ### DataTable
 
