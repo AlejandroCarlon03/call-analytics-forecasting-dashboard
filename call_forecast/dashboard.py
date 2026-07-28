@@ -29,6 +29,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from importlib import resources
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -40,7 +41,7 @@ from .serialize import TARGET_LABELS, TARGET_UNITS
 
 log = logging.getLogger(__name__)
 
-__all__ = ["THEME", "build_dashboard"]
+__all__ = ["THEME", "build_dashboard", "build_dashboard_react"]
 
 
 # --------------------------------------------------------------------------- #
@@ -1259,4 +1260,150 @@ def build_dashboard(
     output_path.write_text(document, encoding="utf-8")
     log.info("Dashboard written to %s (%.1f MB)", output_path,
              output_path.stat().st_size / 1e6)
+    return output_path
+
+
+# --------------------------------------------------------------------------- #
+#  React renderer                                                              #
+# --------------------------------------------------------------------------- #
+#: The comment in ``frontend/index.html`` that the payload replaces. The React
+#: build carries it through verbatim, so it is the one point of contact between
+#: the two toolchains.
+PAYLOAD_MARKER = "<!--dashboard-data-->"
+
+#: Where the committed single-file React build lives inside the package.
+#: Addressed through :mod:`importlib.resources` rather than ``__file__`` so it
+#: resolves from an installed wheel, not only from a source checkout.
+TEMPLATE_RESOURCE = "assets/dashboard_template.html"
+
+_MISSING_TEMPLATE = (
+    "The React dashboard template is missing from the package "
+    "(call_forecast/{resource}). It is a build artefact of the frontend and is "
+    "normally committed; rebuild it with:\n"
+    "    cd frontend && npm ci && npm run build\n"
+    "    python scripts/sync_template.py"
+)
+
+
+def _read_template() -> str:
+    """
+    Load the committed React build.
+
+    A missing template is a packaging or checkout problem, not a data problem,
+    so it raises with the command that fixes it rather than degrading to a
+    blank page.
+    """
+    try:
+        return (
+            resources.files("call_forecast")
+            .joinpath(TEMPLATE_RESOURCE)
+            .read_text(encoding="utf-8")
+        )
+    except (FileNotFoundError, ModuleNotFoundError) as exc:
+        raise FileNotFoundError(
+            _MISSING_TEMPLATE.format(resource=TEMPLATE_RESOURCE)
+        ) from exc
+
+
+def build_dashboard_react(
+    output_path: Path,
+    calls: pd.DataFrame,
+    daily: pd.DataFrame,
+    evaluations: Mapping[str, Any],
+    forecasts: Mapping[str, Any],
+    anomaly_report,
+    explanations: Mapping[str, Any],
+    scenario_table: pd.DataFrame,
+    scenario_notes: Sequence[str],
+    ingestion_report,
+    cfg: AppConfig | None = None,
+) -> Path:
+    """
+    Render the run into the React dashboard: one self-contained HTML file.
+
+    The signature mirrors :func:`build_dashboard` exactly so the pipeline
+    chooses a renderer and changes nothing else. The two produce the same
+    sections from the same run; this one is a fraction of the size, because the
+    presentation ships once as a compiled bundle instead of being re-emitted as
+    string-assembled HTML with Plotly inlined behind it.
+
+    How it works: the frontend is built ahead of time into a single HTML file
+    carrying its own JS and CSS, and committed to the package. All this does at
+    run time is serialise the payload and substitute it for
+    :data:`PAYLOAD_MARKER`. There is no Node dependency at run time and no
+    network access, by construction — nothing here can introduce one.
+
+    The payload goes in as ``<script type="application/json">``, which is
+    inert: the browser does not execute it, and ``loadPayload()`` reads it out
+    of the DOM. The only way to escape that block is to close the tag, which is
+    what :func:`serialize.dumps` prevents by escaping ``<`` and ``>``.
+
+    Returns
+    -------
+    pathlib.Path
+        The written file.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the template is not in the package.
+    ValueError
+        If the template does not carry exactly one payload marker, or if the
+        serialised payload could close the script tag.
+    """
+    from .serialize import build_payload, dumps
+
+    cfg = cfg or AppConfig.default()
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = build_payload(
+        calls=calls,
+        daily=daily,
+        evaluations=evaluations,
+        forecasts=forecasts,
+        anomaly_report=anomaly_report,
+        explanations=explanations,
+        scenario_table=scenario_table,
+        scenario_notes=scenario_notes,
+        ingestion_report=ingestion_report,
+        cfg=cfg,
+    )
+    data = dumps(payload)
+
+    # Belt and braces over serialize.dumps, which escapes these to \uXXXX. The
+    # check is here rather than only in a test because the failure it guards
+    # against is HTML injection from free-text anomaly messages, and the cost
+    # of the guard is one scan of a string we have just built anyway.
+    if "<" in data or ">" in data:
+        raise ValueError(
+            "The serialised payload contains a raw '<' or '>' and could close "
+            "the script tag it is inlined into. serialize.dumps() is supposed "
+            "to escape both; check _HTML_ESCAPES."
+        )
+
+    template = _read_template()
+    found = template.count(PAYLOAD_MARKER)
+    if found != 1:
+        raise ValueError(
+            f"Expected exactly one {PAYLOAD_MARKER} in the React template, "
+            f"found {found}. The committed template is stale or was edited by "
+            f"hand; rebuild it with scripts/sync_template.py."
+        )
+
+    document = template.replace(
+        PAYLOAD_MARKER,
+        f'<script id="dashboard-data" type="application/json">{data}</script>',
+    )
+
+    # newline="\n" keeps the written size equal to the byte count of the string
+    # on every platform. The size budget is asserted in the tests, and Windows'
+    # default line-ending translation would otherwise make it host-dependent.
+    output_path.write_text(document, encoding="utf-8", newline="\n")
+    log.info(
+        "React dashboard written to %s (%.2f MB, payload %.0f KB)",
+        output_path,
+        output_path.stat().st_size / 1e6,
+        len(data.encode("utf-8")) / 1024,
+    )
     return output_path

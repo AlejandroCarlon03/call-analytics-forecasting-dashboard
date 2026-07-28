@@ -5,7 +5,8 @@ See `SESSION_CONTEXT.md` at the repository root for the full migration plan.
 
 **Node is a development dependency only.** End users still `pip install` and run
 `python -m call_forecast run`; the built bundle is committed as a template so no
-Node toolchain is needed to produce a dashboard (PR 6).
+Node toolchain is needed to produce a dashboard. See
+[Shipping the dashboard](#shipping-the-dashboard).
 
 ## Getting started
 
@@ -28,7 +29,7 @@ npm run dev
 `src/data/loadPayload.ts` tries three sources in order:
 
 1. an inline `<script id="dashboard-data" type="application/json">` block — how
-   the production single-file dashboard ships (PR 6);
+   the production single-file dashboard ships;
 2. `fetch('./dashboard_data.json')` — a served or file-adjacent payload;
 3. `src/data/fixtures/dashboard_data.json` — **dev only**, behind an
    `import.meta.env.DEV` guard so Vite drops it from production builds.
@@ -45,6 +46,50 @@ business data in `data/`, since this file is committed.
 python -m call_forecast run --root /tmp/fixture --data-dir examples
 cp /tmp/fixture/outputs/dashboard_data.json frontend/src/data/fixtures/
 ```
+
+## Shipping the dashboard
+
+`npm run build` produces **one** file, `dist/index.html`, with all JS and CSS
+inlined by `vite-plugin-singlefile`. That file is copied into the Python package
+and committed:
+
+```bash
+cd frontend && npm ci && npm run build
+python scripts/sync_template.py
+```
+
+`call_forecast/assets/dashboard_template.html` is the result, and
+`call_forecast.dashboard.build_dashboard_react()` is its only consumer. At run
+time it substitutes the serialised payload for the `<!--dashboard-data-->`
+comment and writes `reports/dashboard.html`. No Node, no network, no server.
+
+### The template goes stale silently
+
+It is a generated file under version control, so the ordinary mistake — change
+a component, check it in the dev server, commit without rebuilding — ships the
+*previous* frontend and reports nothing. Guard:
+
+```bash
+python scripts/sync_template.py --check    # exit 1 if the committed copy is stale
+```
+
+Run the build, then `--check`. This is deliberately the same shape as
+`scripts/gen_tokens.py --check` for `tokens.css`; there is one generator, one
+check, and no second place for the artefact to be written. CI wires it up in
+PR 9 and must **pin the Node version**: the build is byte-reproducible for a
+fixed lockfile and Node major, not across them, so a diff after a Node upgrade
+means re-sync and commit rather than a bug.
+
+`--check` also refuses a build that is unfit to be a template at all — a missing
+or duplicated marker, a surviving `src=`/`href=`, or a size over budget.
+
+### Size budget
+
+The generated dashboard must stay **≤ 2 MB** (the Python renderer's output is
+5.08 MB). The payload rides along inside it — ~270 KB on the 210-day sample —
+so `dist/index.html` itself is held to 1.7 MB, which `sync_template.py`
+enforces. Plotly is most of what is left; see
+[The Plotly dependency](#the-plotly-dependency).
 
 ## Theming
 

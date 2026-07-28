@@ -409,6 +409,7 @@ def run_pipeline(
     cfg: AppConfig | None = None,
     force: bool = True,
     build_report: bool = True,
+    react_dashboard: bool = False,
 ) -> RunResult | None:
     """
     Run the full analysis and write every deliverable.
@@ -424,6 +425,11 @@ def run_pipeline(
     build_report:
         Whether to render the HTML dashboard. Turning it off makes CSV-only
         runs noticeably faster, since Plotly is only imported when needed.
+    react_dashboard:
+        Render the React dashboard instead of the Python-assembled one. Same
+        path, same sections, a fraction of the size. Opt-in while the React
+        renderer is still being proven against the original; the default stays
+        with the renderer that has been in service.
 
     Returns
     -------
@@ -501,7 +507,15 @@ def run_pipeline(
 
     if build_report:
         try:
-            from .dashboard import build_dashboard
+            # Both renderers take the same arguments and write the same file,
+            # so the choice is one name. The import stays inside the branch, as
+            # it always has been, so a --no-report run loads neither. The React
+            # renderer never imports Plotly at all — the charts are drawn in
+            # the browser, not here.
+            if react_dashboard:
+                from .dashboard import build_dashboard_react as build_dashboard
+            else:
+                from .dashboard import build_dashboard
 
             path = build_dashboard(
                 output_path=cfg_paths.report_dir / "dashboard.html",
