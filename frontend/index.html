@@ -6,12 +6,12 @@
     <title>Call Analytics Forecast</title>
   </head>
   <body>
-    <!--
-      In production (PR 6) the Python renderer injects the run's payload here as
-      <script id="dashboard-data" type="application/json">...</script>, and
-      loadPayload() finds it before trying any other source. In dev the element
-      is absent and the bundled fixture is used instead.
-    -->
+    <!-- The Python renderer replaces the marker below with an inline
+         script id="dashboard-data" type="application/json" block carrying
+         the run's payload; loadPayload() finds it there before trying any
+         other source. In dev the marker is never replaced, so the bundled
+         fixture is used instead. -->
+    <!--dashboard-data-->
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

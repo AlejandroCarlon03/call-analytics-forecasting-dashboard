@@ -83,7 +83,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     from .pipeline import run_pipeline
 
     cfg = _load_config(args)
-    result = run_pipeline(cfg, force=not args.only_if_changed, build_report=not args.no_report)
+    result = run_pipeline(
+        cfg,
+        force=not args.only_if_changed,
+        build_report=not args.no_report,
+        react_dashboard=args.react_dashboard,
+    )
 
     if result is None:
         print("Inputs unchanged since the last run — nothing to do.")
@@ -129,7 +134,12 @@ def cmd_watch(args: argparse.Namespace) -> int:
     try:
         while True:
             try:
-                result = run_pipeline(cfg, force=False, build_report=not args.no_report)
+                result = run_pipeline(
+                    cfg,
+                    force=False,
+                    build_report=not args.no_report,
+                    react_dashboard=args.react_dashboard,
+                )
                 if result is not None:
                     print(result.summary())
                     print(f"Waiting for further changes ({interval}s poll)...")
@@ -247,6 +257,9 @@ def build_parser() -> argparse.ArgumentParser:
                      help="skip the run when the inputs are unchanged")
     run.add_argument("--no-report", action="store_true",
                      help="write CSVs but skip the HTML dashboard")
+    run.add_argument("--react-dashboard", action="store_true",
+                     help="render the React dashboard instead of the classic one "
+                          "(same file, much smaller; opt-in while it is proven)")
     run.set_defaults(func=cmd_run)
 
     check = sub.add_parser("check", parents=[common],
@@ -259,6 +272,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="seconds between polls (default 300)")
     watch.add_argument("--no-report", action="store_true",
                        help="write CSVs but skip the HTML dashboard")
+    watch.add_argument("--react-dashboard", action="store_true",
+                       help="render the React dashboard instead of the classic one")
     watch.set_defaults(func=cmd_watch)
 
     forecast = sub.add_parser("forecast", parents=[common],

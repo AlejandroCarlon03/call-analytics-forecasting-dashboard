@@ -39,6 +39,12 @@ call-forecast = "call_forecast.cli:main"
 [tool.setuptools.packages.find]
 include = ["call_forecast*"]
 
+# The React dashboard ships as a pre-built single HTML file. Users install with
+# pip and never see Node, so the build artefact has to be in the wheel; the
+# pattern reaches into assets/ without that directory needing to be a package.
+[tool.setuptools.package-data]
+call_forecast = ["assets/*.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

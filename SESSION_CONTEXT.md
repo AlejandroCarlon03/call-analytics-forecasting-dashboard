@@ -23,12 +23,13 @@ yesterday. It complements the existing descriptive tools on the Desktop
 **Status.** Feature-complete against the original spec and working end to end.
 **Not yet production-useful for point forecasts** — see §4.
 
-**Active work.** Migrating the HTML dashboard to React. Branch
-`feature/analytics-charts`; migration PRs 1–5 are done — payload contract,
-frontend scaffold, primitives + non-chart sections, the Plotly base plus the
-three forecast charts, and the remaining five charts. Every section of the
-Python dashboard now has a React counterpart; what is left is packaging
-(PR 6–9). See §8.
+**Active work.** Migrating the HTML dashboard to React. Migration PRs 1–6 are
+done — payload contract, frontend scaffold, primitives + non-chart sections,
+the Plotly base plus the three forecast charts, the remaining five charts, and
+single-file bundling with pipeline integration. `python -m call_forecast run
+--react-dashboard` now writes the React `reports/dashboard.html` (1.95 MB,
+against 5.08 MB from the Python renderer). The legacy renderer is still the
+default. What is left is behaviour and process: PR 7–9. See §8.
 
 **Test suite health.** Two test files currently crash *during collection* on
 this machine for reasons unrelated to any recent change — see §4.
@@ -60,6 +61,9 @@ call-forecast/
 │   ├── explain.py          # SHAP / permutation / native importance
 │   ├── scenarios.py        # Erlang B/C/A queueing + what-if
 │   ├── dashboard.py        # self-contained HTML report (being replaced, §8)
+│   │                       #   + build_dashboard_react(), the React renderer
+│   ├── assets/
+│   │   └── dashboard_template.html  # COMMITTED frontend build (§8) - generated
 │   ├── serialize.py        # run -> JSON payload; the frontend's contract
 │   ├── pipeline.py         # orchestration + retrain detection + CSV writing
 │   └── cli.py              # argparse entry point
@@ -82,7 +86,8 @@ call-forecast/
 │   │   └── styles/
 │   └── README.md           # frontend conventions and workflows
 ├── scripts/
-│   └── gen_tokens.py       # THEME -> frontend/src/theme/tokens.css
+│   ├── gen_tokens.py       # THEME -> frontend/src/theme/tokens.css
+│   └── sync_template.py    # frontend/dist -> call_forecast/assets (+ --check)
 ├── tests/                  # unit + doctests
 ├── examples/
 │   └── sample_export.csv   # 1,711 synthetic calls over 210 days
@@ -102,8 +107,9 @@ data/*.csv
   → evaluation.evaluate_models()   per target: leaderboard + best_model + residuals
   → forecast.generate_forecast()   refit on all history; calibrate; 90 days; simulate paths
   → explain / anomalies / scenarios
-  → pipeline._write_outputs()  17 CSVs
-  → dashboard.build_dashboard()    reports/dashboard.html
+  → pipeline._write_outputs()  17 CSVs + outputs/dashboard_data.json
+  → dashboard.build_dashboard()        reports/dashboard.html   (default)
+    dashboard.build_dashboard_react()  reports/dashboard.html   (--react-dashboard)
   → models/manifest.json       fingerprint for retrain detection
 ```
 
@@ -168,7 +174,14 @@ than fitted on a handful of points and quietly trusted.
 
 - Full pipeline on real data (159 calls / 71 days): ~2.5 min, all outputs.
 - Full pipeline on `examples/sample_export.csv` (1,711 calls / 210 days).
-- 154 unit tests + 18 doctests pass (of the files that collect — see below).
+- 241 unit tests + 18 doctests pass.
+
+**Update, PR 6.** The collection crash below **did not reproduce** on this run:
+`python -m pytest tests/ -q` collected and passed all seven files plus the new
+`test_react_dashboard.py` — 241 tests in 7m13s — on the same versions named
+below (pytest 9.1.1 · numpy 2.4.6 · pandas 3.0.5) in `~/.venvs/callforecast`.
+Nothing was changed to fix it, so treat it as intermittent or interpreter-
+specific rather than resolved, and leave the two remedies in place.
 
 ### Test collection crash (environment, not code)
 
@@ -225,6 +238,7 @@ python -m venv ~/.venvs/callforecast     # MUST be outside OneDrive (see §6)
 
 python -m call_forecast run -v                    # full pipeline
 python -m call_forecast run --data-dir examples   # against the sample
+python -m call_forecast run --react-dashboard     # React report instead (§8)
 python -m call_forecast check                     # exit 1 = retrain pending
 python -m call_forecast inspect                   # data quality only
 python -m call_forecast forecast call_volume
@@ -320,6 +334,12 @@ OneDrive locks files mid-install and corrupts pip. Skip
   table view. The dashboard follows an audited palette; re-validate if you
   change hues.
 - Introduce a CDN/network dependency in the dashboard. A test asserts against it.
+- Hand-edit `call_forecast/assets/dashboard_template.html`. It is a build
+  artefact; `scripts/sync_template.py` is its only writer. Change the frontend
+  and re-sync.
+- Check self-containment of the React output with a regex. The page is 1.6 MB
+  of minified JS containing the strings `src=`, `href=` and `<script>`; parse
+  it with `html.parser` and look at real tags.
 
 ---
 
@@ -572,6 +592,105 @@ SVG width equals container width). Live resizing needs a check in a real
 browser, and it matters more now: the ranked charts' heights are computed, so
 a resize path that discarded `layout.height` would collapse them.
 
+**PR 6 — single-file bundling and pipeline integration** (this branch).
+`python -m call_forecast run --react-dashboard` writes the React dashboard to
+`reports/dashboard.html`. Without the flag nothing changes: the Python renderer
+is still the default, still writes the same path, and its code is untouched.
+
+```
+5,082,765 B  reports/dashboard.html   Python renderer
+1,946,364 B  reports/dashboard.html   React renderer  (-61.7%)
+  1,671,089 B  of it the committed template
+    275,235 B  of it the run payload
+```
+
+**How the two toolchains meet.** `frontend/index.html` carries one HTML comment,
+`<!--dashboard-data-->`, immediately before `#root`.
+`vite-plugin-singlefile` inlines the JS and CSS into a single `dist/index.html`
+and carries that comment through verbatim; `scripts/sync_template.py` copies the
+result to `call_forecast/assets/dashboard_template.html`, which is **committed**;
+`build_dashboard_react()` substitutes the serialised payload for the comment and
+writes the file. That is the whole mechanism. There is no Node at run time and
+nothing that could introduce a network dependency.
+
+A comment rather than an empty `<script id="dashboard-data">{}</script>`
+placeholder, because `loadPayload()` checks the inline source first — a
+placeholder would be *found* in dev and render an empty payload instead of
+falling through to the fixture.
+
+**The escaping was already done.** `serialize.dumps()` has escaped `<`, `>` and
+`&` to `\uXXXX` since PR 1 for exactly this moment, so `build_dashboard_react()`
+only has to use it rather than `json.dumps`. Verified end to end with an anomaly
+message carrying `</script><script>alert('xss')</script>`: it round-trips
+through `JSON.parse` byte-identical, and no raw `<` reaches the document. There
+is a redundant guard in the renderer that raises if a `<` or `>` survives —
+cheap, and the thing it protects against is HTML injection from free text.
+
+*`build_dashboard_react()` takes the same arguments as `build_dashboard()`*, so
+`pipeline.py` picks a name and changes nothing else. It builds its own payload
+via `build_payload()` rather than reaching for the copy `_write_outputs()`
+already made; that copy is not on `RunResult`, and rebuilding a dict is cheaper
+than coupling the renderer to the CSV writer's internals.
+
+**The committed template is the risk, and it is handled the way `tokens.css`
+already is.** A generated file under version control goes stale silently:
+change a component, check it in the dev server, commit without rebuilding, and
+every later run renders the *previous* frontend while reporting nothing.
+`scripts/sync_template.py --check` is the guard, deliberately the same shape as
+`scripts/gen_tokens.py --check` — one writer, one check, one convention to
+learn. It also refuses a build unfit to be a template at all: a missing or
+duplicated marker, a surviving `src=`/`href=`, or a size over 1.7 MB. PR 9 wires
+`npm ci && npm run build && python scripts/sync_template.py --check` into CI and
+**must pin the Node version**: the build is byte-reproducible for a fixed
+lockfile and Node major, not across them.
+
+*Self-containment cannot be checked with a regex here.* The existing
+`test_dashboard_is_self_contained` searches for `<script[^>]+\ssrc=` and works
+against the Python renderer. The React page is 1.6 MB of minified JS containing
+the literals `src=`, `href=`, `<script>` and `http://www.w3.org/2000/svg`, so a
+substring or regex scan reports external dependencies on a page that has none.
+Both the sync script and the new tests parse with `html.parser`, which treats
+`<script>`/`<style>` content as CDATA. The generated file has exactly three
+tags of interest: the module script, the style block, and the payload script.
+
+**The size budget has little headroom.** 1.95 MB against 2 MB is 53 KB of
+slack, and the payload is what varies — 275 KB on the 210-day sample, less on
+the 71-day export, but more as history accumulates. Plotly is ~85% of the
+template (1.42 MB of 1.67 MB); React, the app and CSS are the remaining ~250 KB.
+When the budget is breached, the lever is a custom Plotly partial bundle
+(`plotly.js/lib/core` + scatter/bar/heatmap, roughly half the size), which also
+means revisiting the hand-written `src/types/plotly.d.ts`. Trimming the payload
+would be the wrong move — it is the contract.
+
+**Packaging.** `[tool.setuptools.package-data] call_forecast = ["assets/*.html"]`.
+No `__init__.py` under `assets/`: package-data patterns already reach into
+subdirectories, and an empty module would exist only to satisfy
+`packages.find`. The template is addressed through `importlib.resources` rather
+than `__file__`, so it resolves from an installed wheel. Verified by building
+the wheel (664 KB, template present at full size) and installing it into a
+clean venv with no Node and no frontend source.
+
+**Verified from `file://`** with the network idle: 12 Plotly figures, the nine
+`build_dashboard()` section headings in order, 17 tables, the model rail, the
+inline payload script, no console output at all, and zero network requests
+(the one recorded request is a `data:` URI, which is inline by definition).
+
+**Tests.** 24 in `tests/test_react_dashboard.py`, over a trimmed run shared at
+module scope: self-containment by parsed tags, the hostile-payload path, both
+size budgets, `importlib.resources` reachability, the renderer's three error
+paths, and the wiring — including an explicit assertion that
+`run_pipeline`'s `react_dashboard` still defaults to `False` and that
+`build_dashboard` is still exported, so PR 8 has to be a deliberate act. The
+frontend suite is unchanged at 73; there is still no component test, which
+remains a PR 9 decision.
+
+**Unverified.** Layout at realistic widths, and live resizing — unchanged from
+PR 5, and for the same reason. The embedded browser pins a `file://` page at a
+265px-wide static snapshot and never fires `ResizeObserver`. PR 5 checked the
+layout at 1440px against a dev server and PR 6 changes no component, so the
+risk is that the *bundling* broke something layout-related, which is not a
+failure mode single-file inlining has. Worth one look in a real browser anyway.
+
 ### Frontend architecture
 
 **Stack.** Vite 7 · React 19 · TypeScript 5.9 · Plotly (cartesian dist) · CSS
@@ -622,11 +741,6 @@ horizontally scrolling strip; the page itself never scrolls sideways.
 
 ### Remaining steps
 
-**PR 6 — single-file bundling and pipeline integration.** `vite-plugin-singlefile`,
-a committed template at `call_forecast/assets/`, payload injected as an inline
-script. Target ≤ 2 MB (from 5.08 MB). Needs a CI check that rebuilding the
-template produces no diff, or a stale template will ship.
-
 **PR 7 — real rail behaviour.** Filter the page to one model; put selection in
 the URL hash. Charts inside `display:none` get zero dimensions — mount lazily or
 resize on reveal.
@@ -634,7 +748,9 @@ resize on reveal.
 **PR 8 — flip the default, retire `dashboard.py`.** Keep `--legacy-dashboard`
 for one release.
 
-**PR 9 — CI.** Node build + typecheck + pytest. Folds into §7 item 10.
+**PR 9 — CI.** Node build + typecheck + pytest, plus
+`python scripts/sync_template.py --check` on a **pinned** Node version so a
+stale committed template fails the build. Folds into §7 item 10.
 
 ### Frontend conventions
 
