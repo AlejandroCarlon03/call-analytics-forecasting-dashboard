@@ -75,10 +75,15 @@ python scripts/sync_template.py --check    # exit 1 if the committed copy is sta
 
 Run the build, then `--check`. This is deliberately the same shape as
 `scripts/gen_tokens.py --check` for `tokens.css`; there is one generator, one
-check, and no second place for the artefact to be written. CI wires it up in
-PR 9 and must **pin the Node version**: the build is byte-reproducible for a
-fixed lockfile and Node major, not across them, so a diff after a Node upgrade
-means re-sync and commit rather than a bug.
+check, and no second place for the artefact to be written.
+
+**CI enforces this on every PR** (`.github/workflows/ci.yml`, the `dashboard`
+job) and never writes the file for you: it fails and names the command. The
+Node version is pinned in **`frontend/.nvmrc`**, which both `nvm use` and CI's
+`setup-node` read — the build is byte-reproducible for a fixed lockfile and Node
+major, not across them, so bumping `.nvmrc` means re-running
+`scripts/sync_template.py` and committing the result in the same PR. A diff
+after a Node upgrade is a re-sync, not a bug.
 
 `--check` also refuses a build that is unfit to be a template at all — a missing
 or duplicated marker, a surviving `src=`/`href=`, or a size over budget.
@@ -90,6 +95,15 @@ The generated dashboard must stay **≤ 2 MB** (the Python renderer's output is
 so `dist/index.html` itself is held to 1.7 MB, which `sync_template.py`
 enforces. Plotly is most of what is left; see
 [The Plotly dependency](#the-plotly-dependency).
+
+```bash
+python scripts/check_bundle_size.py    # exit 1 if the generated page would exceed 2 MB
+```
+
+That projects the generated size from the build plus the committed sample
+payload — the render is one string substitution, so it is arithmetic — and runs
+in CI beside `--check`. The pipeline-rendered measurement it approximates lives
+in `tests/test_react_dashboard.py`.
 
 ## Theming
 

@@ -1,0 +1,186 @@
+# Continuous integration for call_forecast.
+#
+# One workflow, three jobs, four questions — in the order a regression would
+# actually be noticed:
+#
+#     Can Python still generate correct analytics?   -> backend
+#     Can React still compile?                       -> frontend
+#     Can the offline dashboard still be built?      -> frontend (build step)
+#     Did someone forget to regenerate the template? -> dashboard
+#
+# That is the whole scope. There is deliberately no Docker build, no deploy, no
+# release automation, no coverage upload and no security scanning here: this
+# repository ships as a wheel that people pip-install and run from a CLI, and
+# the only thing CI has to protect is that the analytics are right and the
+# committed build artefact matches its source.
+#
+# Why `dashboard` is a separate job rather than two more steps on `frontend`:
+# it needs Python and no Node, `frontend` needs Node and no Python, and a PR
+# gets a clearer answer from "Dashboard artefact ✗" than from a build job that
+# failed somewhere after the build. It consumes the built bundle as an
+# artifact, so the bundle CI validates is the one CI just built.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A force-push while CI is mid-run should replace the run, not queue a second
+# one against a commit nobody is looking at any more.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # --------------------------------------------------------------------- #
+  #  Python: the analytics themselves                                      #
+  # --------------------------------------------------------------------- #
+  backend:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      # A failure on 3.10 should not hide a different failure on 3.12.
+      fail-fast: false
+      matrix:
+        # The ends of the supported range, and nothing in between. pyproject
+        # declares requires-python = ">=3.10"; 3.11 sits between two legs that
+        # both pass and has never been where drift shows up. Two legs is the
+        # smallest matrix that still catches "this only works on my
+        # interpreter", which is the environment drift documented in
+        # SESSION_CONTEXT.md §4.
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      # requirements.txt, not `pip install .`, so CI installs what a developer
+      # installs — including the optional prophet and shap. The pipeline
+      # degrades gracefully without them, but a leg that skipped them would be
+      # testing a different code path than the one that ships.
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      # pyproject sets pythonpath = ["."], so the package imports from the
+      # checkout; there is nothing to install for the tests to find it.
+      - name: pytest
+        run: python -m pytest tests/ -q
+
+      - name: Doctests
+        run: python -m pytest --doctest-modules call_forecast/ -q
+
+  # --------------------------------------------------------------------- #
+  #  Frontend: typecheck, unit tests, production build                     #
+  # --------------------------------------------------------------------- #
+  frontend:
+    name: Frontend (Node 24)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned via frontend/.nvmrc, which is also what `nvm use` reads locally.
+      # The pin is load-bearing rather than tidy: the single-file build is
+      # byte-reproducible for a fixed lockfile and Node major, and is not
+      # guaranteed across majors — and the `dashboard` job below compares bytes.
+      # Bumping .nvmrc means re-running scripts/sync_template.py and committing
+      # the result in the same PR.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # `npm ci` rather than `npm install`: it installs the lockfile exactly and
+      # fails if package.json and the lockfile disagree, which is the drift
+      # worth catching.
+      - name: Install dependencies
+        run: npm ci
+
+      # Run separately from `npm run build`, which also runs it. The duplicate
+      # tsc pass costs a few seconds and buys a PR a distinct red X for "types
+      # broke" versus "the bundle failed to build".
+      - name: Typecheck (TypeScript strict)
+        run: npm run typecheck
+
+      # 130 tests: pure figure builders in node, plus the jsdom component tests
+      # PR 7 added. Running them here is the verification PR 7 deferred — that
+      # the jsdom-by-docblock arrangement works on a machine that is not this
+      # developer's.
+      - name: Unit tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      - name: Assert the bundle was produced
+        run: test -s dist/index.html
+
+      # Handed to `dashboard` so the staleness comparison runs against the
+      # bundle this run produced, not one rebuilt in a second environment.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/index.html
+          retention-days: 7
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------- #
+  #  Dashboard artefact: staleness and size                                #
+  # --------------------------------------------------------------------- #
+  dashboard:
+    name: Dashboard artefact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Both scripts are stdlib-only by design, so this job installs nothing.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      # The failure this catches: someone changes a component, sees it work in
+      # the dev server, and commits without re-running the sync — after which
+      # every `python -m call_forecast run` renders the *previous* frontend and
+      # nothing reports a problem. CI does not fix it; the script names the one
+      # command that does. See SESSION_CONTEXT.md §8.
+      - name: Committed template is current
+        run: python scripts/sync_template.py --check
+
+      # Projects the generated dashboard from the downloaded bundle plus the
+      # committed sample payload — the render is one string substitution, so
+      # the size is arithmetic and this needs no pipeline run. The real
+      # measurement, against a rendered file, is in the backend job's
+      # test_generated_dashboard_stays_under_budget.
+      #
+      # The script falls back to the committed template when frontend/dist is
+      # absent, which would be a weaker check — it cannot happen here, because
+      # download-artifact fails on a missing artifact and the sync check above
+      # reads the same path.
+      - name: Dashboard size budget
+        run: python scripts/check_bundle_size.py
