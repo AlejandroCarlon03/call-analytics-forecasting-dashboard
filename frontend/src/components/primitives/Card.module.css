@@ -15,3 +15,12 @@
   margin: 0 0 12px;
   font-weight: 600;
 }
+
+/* The `.blurb` rule from dashboard.py, applied inside a card rather than under
+   a section heading. Same measure, so the two read as one typographic scale. */
+.blurb {
+  color: var(--ink2);
+  margin: 0 0 16px;
+  max-width: 78ch;
+  font-size: 14px;
+}

@@ -1,6 +1,14 @@
 import { useMemo } from 'react';
-import type { AnomalyRow, AnomalyRuleTally, AnomalySection, ConfigSummary } from '../../data/types';
+import type {
+  AnomalyRow,
+  AnomalyRuleTally,
+  AnomalySection,
+  ConfigSummary,
+  DailyRow,
+} from '../../data/types';
 import { formatPercent } from '../../lib/format';
+import { buildAnomalyFigure } from '../../lib/chart/figures';
+import { PlotlyChart, useChartPalette } from '../charts';
 import { Card, DataTable, Section, TableView } from '../primitives';
 import type { Column } from '../primitives';
 
@@ -52,16 +60,25 @@ const ITEM_COLUMNS: ReadonlyArray<Column<AnomalyRow>> = [
 interface AnomaliesSectionProps {
   anomalies: AnomalySection;
   config: ConfigSummary['anomalies'];
+  /** Observed history — the line the flagged days are marked on. */
+  daily: readonly DailyRow[];
 }
 
 /**
- * Anomalies and alerts — tables only.
+ * Anomalies and alerts.
  *
- * The timeline chart that sits above these in the Python dashboard is PR 5.
- * The tables are the part that is machine-readable and screen-reader-readable,
- * so they are worth landing first regardless.
+ * The timeline sits above the tables rather than in a section of its own,
+ * because a flagged day means nothing without the line it departs from — and
+ * the marker's height is read off that line, not off the rule's own `actual`.
  */
-export function AnomaliesSection({ anomalies, config }: AnomaliesSectionProps) {
+export function AnomaliesSection({ anomalies, config, daily }: AnomaliesSectionProps) {
+  const palette = useChartPalette();
+
+  const figure = useMemo(
+    () => buildAnomalyFigure({ daily, anomalies: anomalies.items, palette }),
+    [daily, anomalies.items, palette],
+  );
+
   // Sliced here rather than passed as `maxRows` so the disclosure label and the
   // row count cannot disagree, and so no "showing first 25 of 173" note appears
   // where the Python dashboard showed none.
@@ -70,6 +87,14 @@ export function AnomaliesSection({ anomalies, config }: AnomaliesSectionProps) {
   return (
     <Section title="Anomalies and alerts" blurb={blurbFor(config)}>
       <Card>
+        <PlotlyChart
+          figure={figure}
+          description={
+            'Daily call volume as a line, with flagged days marked: an up triangle ' +
+            'for critical alerts and a diamond for warnings. Info-level alerts are ' +
+            'not marked. The flagged days are listed in the tables below.'
+          }
+        />
         <DataTable
           columns={TALLY_COLUMNS}
           rows={anomalies.byRule}

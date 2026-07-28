@@ -11,11 +11,10 @@
  * There are therefore no colour literals in this file, which is the project
  * convention: "Colours come from custom properties, never literals."
  *
- * Roles are added as charts need them. The remaining charts land in PR 5 and
- * will want `surface`, `critical`, `warning` and the `--seq-N` ramp.
+ * Roles are added as charts need them.
  */
 
-/** The theme roles the forecast charts use. */
+/** The theme roles the charts use. */
 export interface ChartPalette {
   ink2: string;
   muted: string;
@@ -25,9 +24,18 @@ export interface ChartPalette {
   series2: string;
   /** The translucent fill behind a forecast's interval band. */
   band: string;
+  /** The card background, used as the halo around an anomaly marker. */
+  surface: string;
+  critical: string;
+  warning: string;
+  /** The sequential ramp, lightest first — the heatmap's colour scale. */
+  seq: readonly string[];
 }
 
-const ROLES: ReadonlyArray<keyof ChartPalette> = [
+/** Every role that resolves to a single colour, i.e. all but `seq`. */
+type ScalarRole = Exclude<keyof ChartPalette, 'seq'>;
+
+const ROLES: readonly ScalarRole[] = [
   'ink2',
   'muted',
   'grid',
@@ -35,7 +43,13 @@ const ROLES: ReadonlyArray<keyof ChartPalette> = [
   'series1',
   'series2',
   'band',
+  'surface',
+  'critical',
+  'warning',
 ];
+
+/** `--seq-0` … `--seq-6`. The length is fixed by `THEME`, not discovered. */
+const SEQ_STEPS = 7;
 
 /**
  * Snapshot the palette from the document.
@@ -52,9 +66,26 @@ const ROLES: ReadonlyArray<keyof ChartPalette> = [
  */
 export function readPalette(root: HTMLElement): ChartPalette {
   const computed = getComputedStyle(root);
-  const palette = {} as ChartPalette;
+  const read = (name: string) => computed.getPropertyValue(`--${name}`).trim();
+
+  const scalars = {} as Record<ScalarRole, string>;
   for (const role of ROLES) {
-    palette[role] = computed.getPropertyValue(`--${role}`).trim();
+    scalars[role] = read(role);
   }
-  return palette;
+  const seq = Array.from({ length: SEQ_STEPS }, (_, i) => read(`seq-${i}`));
+  return { ...scalars, seq };
+}
+
+/**
+ * The ramp in Plotly's colorscale form — `[[0, c0], … [1, cN]]`.
+ *
+ * The port of the comprehension in `_heatmap_figure()`. Plotly also accepts a
+ * named scale, but the ramp is part of the audited palette and lives in
+ * `tokens.css`, so the stops are built from it rather than named.
+ */
+export function seqColorscale(seq: readonly string[]): Array<[number, string]> {
+  // A one-colour ramp has no interval to interpolate over; Plotly needs both
+  // ends, so it is stated twice rather than left as a single stop at 0.
+  if (seq.length === 1) return [[0, seq[0]!], [1, seq[0]!]];
+  return seq.map((color, i) => [i / (seq.length - 1), color]);
 }
