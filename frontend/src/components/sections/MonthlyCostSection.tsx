@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { ForecastMonthRow, ForecastSection as ForecastPayload } from '../../data/types';
 import { deriveColumns } from '../../lib/columns';
 import { buildMonthlyCostFigure } from '../../lib/chart/figures';
+import { isTargetVisible } from '../../lib/selection';
 import { PlotlyChart, useChartPalette } from '../charts';
 import { Card, DataTable, Section, TableView } from '../primitives';
 
@@ -24,6 +25,9 @@ const COLUMNS = [
 /** `days_forecast` was `int` in pandas; JSON cannot say so. */
 const INTEGER_COLUMNS = ['days_forecast'] as const;
 
+/** The one target this section ever renders — cost has no sibling monthly rollup. */
+const TARGET = 'total_cost';
+
 /**
  * Stable identity for the no-cost-forecast case.
  *
@@ -41,7 +45,13 @@ const NO_MONTHS: readonly ForecastMonthRow[] = [];
  * answers no question anyone asks. The section disappears when cost was not
  * forecast at all.
  */
-export function MonthlyCostSection({ forecast }: { forecast: ForecastPayload | undefined }) {
+export function MonthlyCostSection({
+  forecast,
+  selectedTarget,
+}: {
+  forecast: ForecastPayload | undefined;
+  selectedTarget: string | null;
+}) {
   const palette = useChartPalette();
   const monthly = forecast?.monthly ?? NO_MONTHS;
 
@@ -56,6 +66,7 @@ export function MonthlyCostSection({ forecast }: { forecast: ForecastPayload | u
   );
 
   if (monthly.length === 0) return null;
+  if (!isTargetVisible(TARGET, selectedTarget)) return null;
 
   return (
     <Section title="Monthly cost projection" blurb={BLURB}>

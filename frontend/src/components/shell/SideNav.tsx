@@ -1,47 +1,79 @@
 import styles from './SideNav.module.css';
 
 export interface NavTab {
-  /** Anchor id of the card this tab points at. */
-  id: string;
+  /** Target key this tab selects, or `null` for the "All" tab. */
+  target: string | null;
   label: string;
 }
 
 interface SideNavProps {
   tabs: NavTab[];
-  activeId: string | null;
-  onSelect: (id: string) => void;
+  selected: string | null;
+  onSelect: (target: string | null) => void;
 }
 
+/** The tab `SideNav` prepends to whatever `App` hands it — see below. */
+const ALL_TAB: NavTab = { target: null, label: 'All' };
+
 /**
- * The left-hand model rail.
+ * The left-hand model rail — a real filter, not a scrollspy.
  *
- * **Presentational**, exactly as in the Python dashboard it replaces:
- * selecting a tab marks it current and scrolls its card into view. It does not
- * yet filter the page down to one model — that behaviour is PR 7, and it is
- * the first thing this migration actually buys.
+ * Selecting a tab no longer just marks it current and scrolls its card into
+ * view: it hands `target` to `onSelect`, `App` writes it into the URL
+ * fragment, and every target-scoped section on the page trims itself down to
+ * it. `SideNav` is a controlled component over `selected` and never reads
+ * the selection back — the same separation `useHashSelection`'s docblock
+ * describes for the rest of the tree.
+ *
+ * **`SideNav` prepends its own "All" tab rather than requiring `App` to
+ * include one in `tabs`.** "All" never appears in `payload.targets` — it is
+ * not a target the run produced, it is the state of filtering by none of
+ * them, which is a fact about having a filter control at all, not about the
+ * payload. Putting it here means "All" exists exactly once, and every future
+ * caller of `SideNav` gets it for free instead of having to remember to
+ * synthesize the same entry `App` currently would.
+ *
+ * Real `<button type="button">` elements, not anchors: a button fires its
+ * click handler on both Space and Enter, and this rail filters the report in
+ * place rather than taking the reader to a document, which is the contract
+ * an anchor makes.
  *
  * The rail is part of the shell rather than a later addition because the
  * two-column grid, and the 900px collapse that keeps the page from scrolling
  * sideways, are defined by it.
  */
-export function SideNav({ tabs, activeId, onSelect }: SideNavProps) {
+export function SideNav({ tabs, selected, onSelect }: SideNavProps) {
   if (tabs.length === 0) return null;
+
+  const allTabs = [ALL_TAB, ...tabs];
+  const active = allTabs.find((tab) => tab.target === selected) ?? ALL_TAB;
+  const status = selected === null ? 'Showing all models.' : `Showing ${active.label} only.`;
 
   return (
     <nav className={styles.sidenav} aria-label="Models">
       <div className={styles.title}>Models</div>
       <div className={styles.tabs}>
-        {tabs.map((tab) => (
+        {allTabs.map((tab) => (
           <button
-            key={tab.id}
+            // `target` (not array index) so React keeps the same DOM node —
+            // and the same focus — across a selection change; re-keying on
+            // index would let the browser silently reassign focus to
+            // whichever tab lands in that slot next.
+            key={tab.target ?? '__all__'}
             type="button"
             className={styles.tab}
-            {...(tab.id === activeId ? { 'aria-current': 'true' as const } : {})}
-            onClick={() => onSelect(tab.id)}
+            {...(tab.target === selected ? { 'aria-current': 'page' as const } : {})}
+            onClick={() => onSelect(tab.target)}
           >
             {tab.label}
           </button>
         ))}
+      </div>
+      {/* Visually hidden: sighted readers see the change through the tab's
+          own weight, surface and left bar, but a screen-reader user gets
+          nothing from those and needs the change spoken instead. */}
+      <div aria-live="polite" className={styles.liveRegion}>
+        {status}
       </div>
     </nav>
   );

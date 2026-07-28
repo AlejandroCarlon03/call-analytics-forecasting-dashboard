@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { ExplanationSection, FeatureImportanceRow, TargetMeta } from '../../data/types';
 import { deriveColumns } from '../../lib/columns';
 import { buildImportanceFigure } from '../../lib/chart/figures';
+import { isTargetVisible } from '../../lib/selection';
 import { PlotlyChart, useChartPalette } from '../charts';
 import { Callout, Card, Section, DataTable, TableView } from '../primitives';
 
@@ -76,6 +77,7 @@ interface ExplainabilitySectionProps {
   explanations: Record<string, ExplanationSection>;
   targets: readonly string[];
   targetMeta: Record<string, TargetMeta>;
+  selectedTarget: string | null;
 }
 
 /** What drives the forecast — one card per target, in `payload.targets` order. */
@@ -83,10 +85,12 @@ export function ExplainabilitySection({
   explanations,
   targets,
   targetMeta,
+  selectedTarget,
 }: ExplainabilitySectionProps) {
   const present = targets
     .map((target) => explanations[target])
-    .filter((explanation): explanation is ExplanationSection => explanation !== undefined);
+    .filter((explanation): explanation is ExplanationSection => explanation !== undefined)
+    .filter((explanation) => isTargetVisible(explanation.target, selectedTarget));
 
   if (present.length === 0) return null;
 

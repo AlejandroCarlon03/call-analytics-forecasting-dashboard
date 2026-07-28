@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { loadPayload, type PayloadSource } from './data/loadPayload';
 import type { DashboardPayload } from './data/types';
+import { useHashSelection } from './lib/useHashSelection';
+import type { SelectionDomain } from './lib/selection';
 import { AppShell } from './components/shell/AppShell';
 import { DashboardHeader } from './components/shell/DashboardHeader';
 import { DashboardFooter } from './components/shell/DashboardFooter';
@@ -23,9 +25,30 @@ type State =
   | { status: 'ready'; payload: DashboardPayload; source: PayloadSource }
   | { status: 'error'; message: string };
 
+/** A payload-shaped domain for a run that has not loaded yet. */
+const NO_TARGETS: string[] = [];
+const NO_HORIZONS: number[] = [];
+
+/**
+ * The dashboard.
+ *
+ * **`App` owns the selection, and the URL owns `App`.** The rail's target and
+ * the forecast horizon both live in the location fragment, read through the one
+ * `useHashSelection` subscriber below and passed down as props. No section
+ * reads `location`, and none keeps its own copy — a second copy would need
+ * keeping in step with the back button, a hand-edited fragment and a reload
+ * separately, and the first one to drift is a filtered view that does not match
+ * the link that produced it.
+ *
+ * What a target selection filters is every section that *has* a target:
+ * forecasts, model comparison, explainability, and the monthly cost card, which
+ * is a `total_cost` forecast and so belongs to that target as much as the
+ * others do. Data quality, at a glance, arrivals, anomalies and scenarios
+ * describe the whole run and stay put — filtering them would be filtering the
+ * report to a model that never had its own copy of them.
+ */
 export function App() {
   const [state, setState] = useState<State>({ status: 'loading' });
-  const [activeId, setActiveId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,24 +75,30 @@ export function App() {
 
   const payload = state.status === 'ready' ? state.payload : null;
 
+  // Hooks cannot be called conditionally, so the domain is empty until the
+  // payload lands. An empty domain parses every fragment to "All", which is
+  // exactly the right thing to show while loading.
+  const domain = useMemo<SelectionDomain>(
+    () => ({
+      targets: payload?.targets ?? NO_TARGETS,
+      horizons: payload?.config.forecast.horizons ?? NO_HORIZONS,
+    }),
+    [payload],
+  );
+
+  const { selection, selectTarget, selectHorizon } = useHashSelection(domain);
+
   const tabs = useMemo<NavTab[]>(() => {
     if (!payload) return [];
     return payload.targets.map((target) => {
       const forecast = payload.forecasts[target];
       const label = payload.targetMeta[target]?.label ?? target;
       return {
-        id: `model-${target}`,
+        target,
         label: forecast ? `${label} — ${forecast.modelLabel}` : label,
       };
     });
   }, [payload]);
-
-  // Default to the first tab, matching the Python rail's initial aria-current.
-  useEffect(() => {
-    if (activeId === null && tabs.length > 0) {
-      setActiveId(tabs[0]?.id ?? null);
-    }
-  }, [tabs, activeId]);
 
   if (state.status === 'loading') {
     return (
@@ -90,12 +119,7 @@ export function App() {
     );
   }
 
-  const handleSelect = (id: string) => {
-    setActiveId(id);
-    // Scroll behaviour matches the Python rail. The forecast cards carry these
-    // ids; filtering the page to one model is PR 7.
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
+  const { target: selectedTarget, horizon } = selection;
 
   return (
     <AppShell
@@ -106,7 +130,9 @@ export function App() {
         />
       }
       {...(tabs.length > 0
-        ? { nav: <SideNav tabs={tabs} activeId={activeId} onSelect={handleSelect} /> }
+        ? {
+            nav: <SideNav tabs={tabs} selected={selectedTarget} onSelect={selectTarget} />,
+          }
         : {})}
       footer={
         <DashboardFooter config={state.payload.config} generatedAt={state.payload.generatedAt} />
@@ -124,19 +150,29 @@ export function App() {
         targetMeta={state.payload.targetMeta}
         daily={state.payload.daily}
         horizons={state.payload.config.forecast.horizons}
+        selectedTarget={selectedTarget}
+        horizon={horizon}
+        onHorizonChange={selectHorizon}
       />
-      {/* Cost is the one target with a monthly rollup. */}
-      <MonthlyCostSection forecast={state.payload.forecasts['total_cost']} />
+      {/* Cost is the one target with a monthly rollup, and it is filtered with
+          the rest of `total_cost` rather than left standing under a volume
+          selection. */}
+      <MonthlyCostSection
+        forecast={state.payload.forecasts['total_cost']}
+        selectedTarget={selectedTarget}
+      />
       <ArrivalsSection hourly={state.payload.hourly} />
       <ModelComparisonSection
         evaluations={state.payload.evaluations}
         targets={state.payload.targets}
         targetMeta={state.payload.targetMeta}
+        selectedTarget={selectedTarget}
       />
       <ExplainabilitySection
         explanations={state.payload.explanations}
         targets={state.payload.targets}
         targetMeta={state.payload.targetMeta}
+        selectedTarget={selectedTarget}
       />
       <AnomaliesSection
         anomalies={state.payload.anomalies}

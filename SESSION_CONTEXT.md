@@ -23,13 +23,14 @@ yesterday. It complements the existing descriptive tools on the Desktop
 **Status.** Feature-complete against the original spec and working end to end.
 **Not yet production-useful for point forecasts** — see §4.
 
-**Active work.** Migrating the HTML dashboard to React. Migration PRs 1–6 are
+**Active work.** Migrating the HTML dashboard to React. Migration PRs 1–7 are
 done — payload contract, frontend scaffold, primitives + non-chart sections,
-the Plotly base plus the three forecast charts, the remaining five charts, and
-single-file bundling with pipeline integration. `python -m call_forecast run
---react-dashboard` now writes the React `reports/dashboard.html` (1.95 MB,
-against 5.08 MB from the Python renderer). The legacy renderer is still the
-default. What is left is behaviour and process: PR 7–9. See §8.
+the Plotly base plus the three forecast charts, the remaining five charts,
+single-file bundling with pipeline integration, and the interactivity the
+Python page could not do. `python -m call_forecast run --react-dashboard` now
+writes the React `reports/dashboard.html` (1.95 MB, against 5.08 MB from the
+Python renderer). The legacy renderer is still the default. What is left is
+process: PR 8–9. See §8.
 
 **Test suite health.** Two test files currently crash *during collection* on
 this machine for reasons unrelated to any recent change — see §4.
@@ -691,19 +692,163 @@ layout at 1440px against a dev server and PR 6 changes no component, so the
 risk is that the *bundling* broke something layout-related, which is not a
 failure mode single-file inlining has. Worth one look in a real browser anyway.
 
+**PR 7 — interactivity the old page could not do** (this branch, on
+`feature/dashboard-interactivity`). The model rail became a filter, the
+forecast cards got a horizon selector, and both live in the URL. The Python
+dashboard could do neither: it was a static string of HTML with a rail that
+scrolled.
+
+```
+dashboard.html                              all three models, 90 days
+dashboard.html#model=total_cost             cost only
+dashboard.html#model=call_volume&horizon=30 volume, first 30 days
+```
+
+**The URL is the state, not a copy of it.** `useHashSelection` subscribes to
+`location` through `useSyncExternalStore` — the same shape `useChartPalette`
+uses for `data-theme`, and for the same reason: the browser owns the value.
+Back, forward, a hand-edited fragment and a reload all change it without React's
+involvement, and a `useState` mirror would have to be kept in step with each of
+those paths separately. There is exactly **one** subscriber, `App`; sections
+receive the parsed selection as props and never read `location`. Parsing and
+formatting are pure functions in `src/lib/selection.ts`, tested without a DOM.
+
+Three decisions here are load-bearing, and two of them are traps.
+
+***`history.pushState` would have broken the shipped artefact.*** A `file://`
+document has an opaque origin, and `pushState` with a URL throws a
+`SecurityError` there — which is exactly how this dashboard is opened, as a
+single self-contained page mailed to someone. Selection writes assign
+`location.hash` instead, which works from `file://`, `http://` and the dev
+server alike. The cost is a bare `#` left in the address bar when the filter is
+cleared; `location.hash` reads back as `''` either way, so nothing downstream
+can tell. **Do not "clean this up" with `pushState` or `replaceState`.**
+
+***The fragment is `key=value` because a bare anchor would collide.*** The
+forecast cards have carried `id="model-<target>"` since PR 4 — that is what the
+rail scrolled to. `#model-call_volume` would therefore have scrolled the page on
+every selection, including the ones that filter that very card away.
+`#model=call_volume` shares no syntax with it, and `selection.test.ts` pins the
+two apart so a future tidy-up cannot quietly merge them.
+
+*Defaults are omitted from the fragment*, so an unfiltered dashboard has a clean
+URL rather than `#model=&horizon=90`, and the default horizon is the **longest**
+configured one — which makes the default render identical to PR 6's. That
+property is the whole regression argument for the horizon work.
+
+**What a selection filters** is every section that has a target: forecasts,
+model comparison, explainability, and the monthly cost card, which is a
+`total_cost` forecast and belongs to that target as much as the others do.
+Leaving it standing under a volume selection would have put a cost card on a
+page claiming to show volume only. Data quality, at a glance, arrivals,
+anomalies and scenarios describe the whole run and never filter.
+
+**Charts are unmounted, not hidden, and that is the fix rather than a
+workaround.** A card filtered off the page is not in the DOM, so it cannot be
+measured at zero width, and when it comes back it mounts fresh and measures
+itself. `Plotly.Plots.resize()` — the obvious-looking answer, and the one the
+PR brief offered as an option — is **wrong here**: it works by deleting
+`layout.width` *and* `layout.height` and re-autosizing, and every figure sets an
+explicit height, the two ranked charts deriving theirs from row count. A resize
+path that discarded height would collapse them. `PlotlyChart` still measures its
+container and passes width explicitly, unchanged from PR 4.
+
+For the same reason `PlotlyChart` needs no queued-draw bookkeeping. An
+unrendered element has a 0×0 border box, which `ResizeObserver` reports like any
+other size, so a reveal delivers a notification even at an unchanged width; that
+fires `drawRef.current`, which React has already re-pointed at the closure over
+the *current* figure. A "deferred draw" flag was written during this PR and
+removed on review — nothing read it, and its comment claimed a guarantee it did
+not provide.
+
+**The horizon is one dashboard-level value**, not one per card: every forecast
+card renders a `HorizonSelect` bound to the same state, so the cards stay
+comparable and the view stays linkable. The control is a native `<select>`
+rather than a segmented button group — the options are mutually exclusive, and a
+real select brings arrow keys, type-ahead and a correct accessible name that a
+button group would have to reimplement as a roving-tabindex radiogroup to match.
+It trims three things together and they must not drift: the chart's forecast
+rows (`step <= horizon`), the rollup table (`days <= horizon`) and the daily
+disclosure (`step <= horizon`).
+
+**The rail.** Real `<button>`s, as before; a `<a href="#model=…">` was
+considered and rejected, because a button fires on both Space and Enter and this
+control filters in place rather than taking the reader to a document.
+`aria-current` moved from `"true"` to `"page"` — the rail now genuinely changes
+what page content is shown. `SideNav` prepends its own "All" tab rather than
+`App` synthesising one: "All" never appears in `payload.targets`, because it is
+a fact about having a filter control, not about the run. Buttons key off
+`target`, so a selection change does not drop focus. A visually hidden
+`aria-live="polite"` region announces "Showing Daily cost — Random Forest only."
+— sighted readers get that from the tab's weight, surface and left bar, and a
+screen-reader user gets nothing from any of those.
+
+**Tests: 130 frontend, up from 73.** 25 for the pure selection contract, 9 for
+the hook against a real `location`, 10 for the rail, 6 for section filtering and
+horizon trimming, 7 for the chart lifecycle.
+
+***This introduces the DOM test environment that §8's PR 9 line reserved.***
+Keyboard activation, `aria-current` moving and a hidden chart redrawing on
+reveal cannot be asserted against pure functions, and PR 7's brief required all
+three. `jsdom`, `@testing-library/react`, `@testing-library/user-event` and
+`@testing-library/jest-dom` are now devDependencies; `node` is still the default
+environment and the 73 pure tests still run in it, with `.test.tsx` files opting
+into a DOM via a `// @vitest-environment jsdom` docblock. `globals: true` is set
+only so Testing Library's automatic cleanup finds an `afterEach` — without one
+it silently does nothing and each test renders into the previous test's DOM.
+**PR 9 should verify this choice in CI rather than re-decide it.**
+
+**Verified against a live dev server at 1440px.** Selecting a target filters 12
+figures to 6 (cost) or 5 (volume, where the monthly section goes too) and the
+nine section headings to eight; "All" restores all 12; every revealed chart
+redraws at its full container width with all six distinct figure heights intact;
+loading `#model=avg_duration_sec&horizon=30` comes up already filtered with the
+select at 30, one rollup row, 30 daily rows and 30 points on the chart; the back
+button restores the previous view through the store subscription with no React
+write involved; Tab reaches every tab in order; no console output; no page
+overflow at a fresh 375px load.
+
+**Unverified, and both are the embedded browser rather than the code.** Enter
+and Space activation on a rail button: the browser delivers a *trusted* keydown
+to the focused button but never performs the default activation, so no click
+fires. The elements are real `<button type="button">`, the behaviour is the HTML
+spec's, and `SideNav.test.tsx` asserts both keys — but it has not been seen in a
+real browser. Live resizing, unchanged from PR 5 and PR 6: this browser changes
+the viewport without dispatching `resize` and its `ResizeObserver` never fires,
+which is directly observable here as charts keeping their old width until a
+reload. A fresh load at any width is correct.
+
+`call_forecast/assets/dashboard_template.html` was re-synced with
+`scripts/sync_template.py`, per §6 — the frontend changed, so the committed
+build artefact had to. 1,674,436 bytes against the 1,700,000-byte budget: 25 KB
+of slack, down from 29 KB.
+
 ### Frontend architecture
 
 **Stack.** Vite 7 · React 19 · TypeScript 5.9 · Plotly (cartesian dist) · CSS
-Modules, with Vitest for unit tests. No UI kit, no state library, no CSS
-framework, no charting wrapper. Node is a **dev** dependency: end users still
-`pip install` and run the CLI.
+Modules, with Vitest for unit tests — plus jsdom and Testing Library for the
+component tests PR 7 added. No UI kit, no state library, no CSS framework, no
+charting wrapper. Node is a **dev** dependency: end users still `pip install`
+and run the CLI.
 
-**Frontend tests.** `npm test` (`vitest run`), Node environment, `src/**/*.test.ts`.
-Deliberately DOM-free — the figure builders are pure, and keeping them that way
-is what makes chart behaviour assertable. Rendering is verified by hand in a
-browser until PR 9 wires CI. 73 tests as of PR 5, every one of them against a
-figure builder or the sizing helpers; there is no component test yet, and
-adding one means choosing a DOM environment, which is a PR 9 decision.
+**Frontend tests.** `npm test` (`vitest run`), `src/**/*.test.{ts,tsx}`. Node is
+the default environment and the figure-builder tests stay DOM-free — they are
+pure, and keeping them that way is what makes chart behaviour assertable.
+A `.test.tsx` file opts into jsdom with a `// @vitest-environment jsdom`
+docblock on its first line and mocks Plotly, which cannot run there:
+
+```ts
+vi.mock('plotly.js-cartesian-dist-min', () => ({ default: { react: vi.fn(), purge: vi.fn() } }));
+```
+
+Two jsdom facts the component tests have to work around, both of which will bite
+the next person: `clientWidth` is **always 0**, so a chart test must stub it on
+`HTMLElement.prototype` to drive a reveal; and there is no `ResizeObserver` at
+all, so one is installed on `globalThis` and fired on demand. Assigning
+`location.hash` dispatches `hashchange` on a *task*, not a microtask — awaiting
+a resolved promise is not enough to observe it.
+
+130 tests as of PR 7.
 
 **Payload loading** (`src/data/loadPayload.ts`) — three sources in order:
 
@@ -730,9 +875,13 @@ is exactly how the Python dashboard behaves. `useTheme()` exposes `mode` (what
 is rendered) and `preference` (`light` / `dark` / `system`); an explicit choice
 persists to `localStorage` under `call-forecast:theme`.
 
-**State.** No library. `ThemeContext` for theme, `useState` in `App` for rail
-selection. The payload is immutable and arrives once. TanStack Query becomes
-correct the day there is a live API, not before.
+**State.** No library, and three kinds of it, each owned in exactly one place.
+The payload is immutable and arrives once, in `App`. Theme is `ThemeContext`,
+read through `useChartPalette`'s DOM subscription rather than `mode`. Selection
+— the rail's target and the forecast horizon — is the URL fragment, read through
+the single `useHashSelection` subscriber in `App` and passed down as props. No
+component reads `location`, and none keeps a second copy of any of the three.
+TanStack Query becomes correct the day there is a live API, not before.
 
 **Layout.** `grid-template-columns: var(--rail) minmax(0, 1fr)`. The
 `minmax(0, 1fr)` is load-bearing — a bare `1fr` lets a wide table or chart force
@@ -741,16 +890,15 @@ horizontally scrolling strip; the page itself never scrolls sideways.
 
 ### Remaining steps
 
-**PR 7 — real rail behaviour.** Filter the page to one model; put selection in
-the URL hash. Charts inside `display:none` get zero dimensions — mount lazily or
-resize on reveal.
-
 **PR 8 — flip the default, retire `dashboard.py`.** Keep `--legacy-dashboard`
 for one release.
 
 **PR 9 — CI.** Node build + typecheck + pytest, plus
 `python scripts/sync_template.py --check` on a **pinned** Node version so a
-stale committed template fails the build. Folds into §7 item 10.
+stale committed template fails the build. Folds into §7 item 10. Two things PR 7
+left for it: the DOM test environment is already in place and wants verifying in
+CI rather than re-deciding, and the two unverified behaviours above — keyboard
+activation of the rail, and live resizing — want one pass in a real browser.
 
 ### Frontend conventions
 
@@ -770,5 +918,9 @@ stale committed template fails the build. Folds into §7 item 10.
   one is unreadable to a screen reader and un-copyable into a spreadsheet.
 - Chart colours come from `useChartPalette()`, never from a literal and never
   from `useTheme().mode` directly.
+- **Selection is the URL fragment, read in `App` and nowhere else.** A section
+  that needs to know what is selected takes it as a prop. Filtering unmounts a
+  card; it never hides one with `display: none`, which would put chart
+  correctness back on the `ResizeObserver`.
 - `frontend/README.md` has the workflows, including regenerating the fixture
   (which comes from `examples/`, never from `data/` — it is committed).

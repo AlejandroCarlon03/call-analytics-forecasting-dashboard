@@ -9,3 +9,4 @@ export type { CalloutTone } from './Callout';
 export { DataTable } from './DataTable';
 export type { CellValue, Column } from './DataTable';
 export { TableView } from './TableView';
+export { HorizonSelect } from './HorizonSelect';
