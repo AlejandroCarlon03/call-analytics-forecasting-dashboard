@@ -11,26 +11,8 @@
 
 import { describe, expect, it } from 'vitest';
 import type { DailyRow, ForecastDayRow } from '../../../data/types';
-import type { ChartPalette } from '../palette';
+import { TEST_PALETTE as PALETTE } from '../testPalette';
 import { buildForecastFigure } from './forecast';
-
-/**
- * A stub palette.
- *
- * Deliberately not the real one: `readPalette()` reads the audited values from
- * the CSS custom properties at runtime, and a test asserting on hex codes here
- * would just be a second, unaudited copy of the palette that fails whenever a
- * hue is legitimately retuned. These tests care about structure.
- */
-const PALETTE: ChartPalette = {
-  ink2: 'ink2',
-  muted: 'muted',
-  grid: 'grid',
-  axis: 'axis',
-  series1: 'series1',
-  series2: 'series2',
-  band: 'band',
-};
 
 const DAILY: DailyRow[] = [
   { date: '2026-07-25', call_volume: 10, avg_duration_sec: null, total_cost: 2 },

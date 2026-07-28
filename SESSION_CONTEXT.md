@@ -24,9 +24,11 @@ yesterday. It complements the existing descriptive tools on the Desktop
 **Not yet production-useful for point forecasts** — see §4.
 
 **Active work.** Migrating the HTML dashboard to React. Branch
-`feature/analytics-charts`; migration PRs 1–4 are done — payload contract,
-frontend scaffold, primitives + non-chart sections, and the Plotly base plus
-the three forecast charts. See §8.
+`feature/analytics-charts`; migration PRs 1–5 are done — payload contract,
+frontend scaffold, primitives + non-chart sections, the Plotly base plus the
+three forecast charts, and the remaining five charts. Every section of the
+Python dashboard now has a React counterpart; what is left is packaging
+(PR 6–9). See §8.
 
 **Test suite health.** Two test files currently crash *during collection* on
 this machine for reasons unrelated to any recent change — see §4.
@@ -68,10 +70,12 @@ call-forecast/
 │   │   ├── components/shell/       # AppShell, header, rail, footer, toggle
 │   │   ├── components/primitives/  # Card, Section, StatTile, Callout,
 │   │   │                           #   DataTable, TableView
-│   │   ├── components/sections/    # data quality, at a glance, forecasts,
+│   │   ├── components/sections/    # all nine: data quality, at a glance,
+│   │   │                           #   forecasts, monthly cost, arrivals,
+│   │   │                           #   model comparison, explainability,
 │   │   │                           #   anomalies, scenarios
 │   │   ├── components/charts/      # PlotlyChart wrapper + useChartPalette
-│   │   ├── lib/chart/      # palette, baseLayout, pure figure builders
+│   │   ├── lib/chart/      # palette, baseLayout, sizing, pure figure builders
 │   │   ├── lib/format.ts   # port of dashboard.py _fmt()
 │   │   ├── lib/columns.ts  # derive DataTable columns from payload rows
 │   │   ├── types/          # ambient module decl for the Plotly dist bundle
@@ -418,8 +422,8 @@ theme toggle render from a committed fixture. No charts yet.
 `StatTile`/`TileGrid`, `Callout`, `DataTable` and `TableView` under
 `components/primitives/`, and the four chart-free sections — Data Quality, At a
 Glance, Anomalies and alerts, Scenario analysis — under `components/sections/`.
-Their entries are gone from `PendingSections.tsx`, which now lists only
-chart-bearing work.
+Their entries left `PendingSections.tsx` listing only chart-bearing work; PR 5
+took the rest and the file with them.
 
 Three things are worth knowing before touching the tables.
 
@@ -500,13 +504,73 @@ bar + heatmap), typed by a hand-written two-function module declaration in
 `src/types/plotly.d.ts` rather than the very large `@types/plotly.js`, which
 describes the *full* library and would typecheck traces this bundle cannot draw.
 
-**Unverified.** Live resizing. The embedded browser used to check everything
-else changes the viewport without dispatching `resize`, and its
-`ResizeObserver` never fires — confirmed against a plain observer watching an
-element restyled from 905px to 520px, which reported zero callbacks. A fresh
-load is correct at every width tried (375px through 1280px, no page overflow,
+**PR 5 — the remaining five charts** (this branch). Monthly cost, arrivals
+heatmap, model-comparison leaderboard, feature importance and the anomaly
+timeline. `PendingSections.tsx` is deleted: all nine sections of
+`build_dashboard()` now have a React counterpart, and 12 figures render on the
+sample payload — the same 12 the Python dashboard builds from it. 63 new
+frontend tests, taking the suite from 10 to 73.
+
+*Nothing in the PR 4 chart layer changed*, which was the design goal — each
+chart is a pure builder under `lib/chart/figures/`, exported from that
+directory's `index.ts`, rendered through `PlotlyChart` with a palette from
+`useChartPalette`. Three things were added *beside* it:
+
+- **Palette roles.** `surface`, `critical`, `warning` and the seven-step
+  `--seq-N` ramp, plus `seqColorscale()` for Plotly's `[[0, c], …]` form.
+  `ChartPalette.seq` is an array, so `readPalette()` no longer fills the whole
+  object from one loop over `ROLES` — scalars and the ramp are read separately.
+- **`lib/chart/sizing.ts`.** `rankedSizing()` derives the two ranked charts'
+  height from row count and their left margin from the longest label, and
+  ellipsises anything past a 220px cap. `dashboard.py` hard-coded `margin.l` at
+  170 and 220 against the labels that existed at the time; the label set is not
+  fixed, and a too-narrow margin loses the *start* of a name with nothing to
+  show it happened. Widths are estimated (7px per character at 12px system-ui),
+  not measured — measuring means a canvas or a hidden node, which would make
+  the builders impure for the sake of a margin the clamp already absorbs.
+- **`Card` takes a `blurb`.** The port of the `<p class='blurb'>` the Python
+  model-comparison and explainability cards open with. Not a `Callout`: those
+  carry a severity icon and read as an aside; this is the card's own subtitle.
+
+The five easy-to-drop `dashboard.py` fixes are all covered by assertions rather
+than by having been looked at: category axis on the monthly chart and on the
+heatmap, `constraintext: 'none'`, `yaxis.autorange: 'reversed'` for a
+Monday-first week, and triangle/diamond markers with the severity named in the
+legend text.
+
+Two smaller decisions carried over and now tested: info-level anomalies are
+absent from the timeline, and one marker is plotted per flagged *day* with its
+y read off the volume line rather than off the rule's own `actual`.
+
+Three builders return `null` rather than an empty figure — leaderboard when no
+model scored, importance when no method did. That is the real
+`avg_duration_sec` case on the 71-day export, where every learned model is
+skipped below the `min_observations` floor: the section keeps its table, which
+is what explains *why* there is no chart, and omits the plot.
+
+`src/lib/chart/testPalette.ts` is a test-only stub shared by the figure tests.
+Its values are role names, not hex codes — asserting on hex here would be a
+second, unaudited copy of the palette that fails whenever a hue is retuned.
+
+**Verified at 1440px** against a live dev server: nine section headings in
+`build_dashboard()` order, 12 figures, zero horizontal page overflow, no
+console errors. Specifically checked rather than eyeballed — `(partial)` bars
+present on a category axis with full `$6.17` labels; hour ticks `"00".."23"`;
+weekday ticks reading Mon→Sun top-down; no y-tick label extending past its
+plot's left edge in any of the ranked charts (`Linear Regression (ridge)` and
+`total_cost_roll7_vs_roll30` both render whole); triangle and diamond marker
+paths on 32 critical and 58 warning days; and the toggle restyling the marker
+halo from `#1a1a19` to `#fcfcfb`, which confirms `useChartPalette` resolves the
+new roles through a theme change.
+
+**Unverified.** Live resizing, unchanged from PR 4. The embedded browser used
+to check everything else changes the viewport without dispatching `resize`, and
+its `ResizeObserver` never fires — confirmed against a plain observer watching
+an element restyled from 905px to 520px, which reported zero callbacks. A fresh
+load is correct at every width tried (375px through 1440px, no page overflow,
 SVG width equals container width). Live resizing needs a check in a real
-browser.
+browser, and it matters more now: the ranked charts' heights are computed, so
+a resize path that discarded `layout.height` would collapse them.
 
 ### Frontend architecture
 
@@ -518,7 +582,9 @@ framework, no charting wrapper. Node is a **dev** dependency: end users still
 **Frontend tests.** `npm test` (`vitest run`), Node environment, `src/**/*.test.ts`.
 Deliberately DOM-free — the figure builders are pure, and keeping them that way
 is what makes chart behaviour assertable. Rendering is verified by hand in a
-browser until PR 9 wires CI.
+browser until PR 9 wires CI. 73 tests as of PR 5, every one of them against a
+figure builder or the sizing helpers; there is no component test yet, and
+adding one means choosing a DOM environment, which is a PR 9 decision.
 
 **Payload loading** (`src/data/loadPayload.ts`) — three sources in order:
 
@@ -555,59 +621,6 @@ the page into horizontal scroll. Below 900px the rail collapses to a
 horizontally scrolling strip; the page itself never scrolls sideways.
 
 ### Remaining steps
-
-**PR 5 — remaining charts.** Monthly cost, heatmap, leaderboard, feature
-importance, anomaly timeline. This is the next PR, and the foundation it needs
-is already on disk: add a builder under `lib/chart/figures/`, export it from
-that directory's `index.ts`, and render it through `PlotlyChart` with a palette
-from `useChartPalette`. Nothing in the chart layer should need to change.
-
-Five entries remain in `PendingSections.tsx`, one per chart; each is deleted as
-its section lands, and the file goes with the last of them.
-
-*Sections to add.* `MonthlyCostSection` (cost only — it is the one target with
-a monthly rollup), `ArrivalsSection` ("When calls arrive"),
-`ModelComparisonSection` and `ExplainabilitySection` (both one card per target,
-following `payload.targets` so page order matches the rail). The anomaly chart
-goes **into the existing `AnomaliesSection`**, above the tally table, rather
-than into a new section — a flagged day means nothing without the line it
-departs from. That section's tables are PR 3 work and should not otherwise
-change; it will need `daily` passed in as a new prop for the timeline.
-
-*Palette roles to add.* `readPalette()` currently resolves only what the
-forecast charts use. PR 5 needs `surface` (the marker halo), `critical`,
-`warning`, and the seven-step `--seq-N` ramp for the heatmap — add them to
-`ChartPalette` and `ROLES`, plus a `seq` array and a `[[0, c], …]` colorscale
-conversion.
-
-*Sizing helpers to add.* The leaderboard and importance charts must derive
-height from row count and left margin from the longest label. `dashboard.py`
-hard-codes `margin.l = 170` and `220` and heights of `46 * n` and `30 * n`;
-those were tuned against the names that existed at the time, and
-`call_volume_roll7_vs_roll30` already overruns 220px at 12px. Estimate label
-width (system-ui at 12px runs a little under 0.6em per character for these
-identifiers), clamp between a floor and a cap, and ellipsise anything past the
-cap rather than letting Plotly clip it silently.
-
-Five fixes from `dashboard.py` are easy to silently drop and are therefore
-acceptance criteria — every one of them still *renders*, which is exactly why
-each needs an assertion rather than a look:
-
-- `xaxis.type: 'category'` on the monthly chart, or Plotly parses `"2026-08"` as
-  a date and **drops the `(partial)` bars**;
-- `xaxis.type: 'category'` on the heatmap, or `"00".."23"` land on a numeric scale;
-- `constraintext: 'none'`, or Plotly clips `"$3.90"` to `"$"` on a narrow bar;
-- heatmap rows Monday-first via `yaxis.autorange: 'reversed'`, since Plotly puts
-  the first category at the *bottom*;
-- anomaly markers as triangle (critical) and diamond (warning), with the
-  severity named in the legend text — so severity is never carried by colour
-  alone, in the plot or in the legend.
-
-Two smaller things worth carrying over. Info-level anomalies are deliberately
-absent from the timeline (numerous, and they would bury the two severities that
-matter); and one marker is plotted per flagged *day*, not per rule, with its y
-taken from the volume line rather than the rule's own `actual` — a cost alert's
-`$4.27` would land nowhere near a call-count axis.
 
 **PR 6 — single-file bundling and pipeline integration.** `vite-plugin-singlefile`,
 a committed template at `call_forecast/assets/`, payload injected as an inline

@@ -4,13 +4,16 @@ import type { DashboardPayload } from './data/types';
 import { AppShell } from './components/shell/AppShell';
 import { DashboardHeader } from './components/shell/DashboardHeader';
 import { DashboardFooter } from './components/shell/DashboardFooter';
-import { PendingSections } from './components/shell/PendingSections';
 import { SideNav, type NavTab } from './components/shell/SideNav';
 import {
   AnomaliesSection,
+  ArrivalsSection,
   AtAGlanceSection,
   DataQualitySection,
+  ExplainabilitySection,
   ForecastsSection,
+  ModelComparisonSection,
+  MonthlyCostSection,
   ScenariosSection,
 } from './components/sections';
 import styles from './App.module.css';
@@ -109,8 +112,10 @@ export function App() {
         <DashboardFooter config={state.payload.config} generatedAt={state.payload.generatedAt} />
       }
     >
-      {/* Page order matches `build_dashboard()`. The remaining chart-bearing
-          sections between "Forecasts" and "Anomalies" are pending (PR 5). */}
+      {/* Page order matches `build_dashboard()`. Every section renders a
+          payload it may find empty, and returns null rather than an empty
+          card when it does — the same way the Python dashboard omitted a
+          block whose frame was empty. */}
       <DataQualitySection ingestion={state.payload.ingestion} />
       <AtAGlanceSection payload={state.payload} />
       <ForecastsSection
@@ -120,10 +125,23 @@ export function App() {
         daily={state.payload.daily}
         horizons={state.payload.config.forecast.horizons}
       />
-      <PendingSections payload={state.payload} />
+      {/* Cost is the one target with a monthly rollup. */}
+      <MonthlyCostSection forecast={state.payload.forecasts['total_cost']} />
+      <ArrivalsSection hourly={state.payload.hourly} />
+      <ModelComparisonSection
+        evaluations={state.payload.evaluations}
+        targets={state.payload.targets}
+        targetMeta={state.payload.targetMeta}
+      />
+      <ExplainabilitySection
+        explanations={state.payload.explanations}
+        targets={state.payload.targets}
+        targetMeta={state.payload.targetMeta}
+      />
       <AnomaliesSection
         anomalies={state.payload.anomalies}
         config={state.payload.config.anomalies}
+        daily={state.payload.daily}
       />
       <ScenariosSection scenarios={state.payload.scenarios} />
     </AppShell>
