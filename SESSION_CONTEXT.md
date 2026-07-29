@@ -35,6 +35,9 @@ cycle. PR 9 adds `.github/workflows/ci.yml`, which is what now holds the
 committed template to its source. The migration is complete; §9 has the CI
 architecture and §5 the remaining product work.
 
+**Phase 2 is under way.** PR 10 — dashboard state consistency — is in §10, on
+`feature/dashboard-state-consistency`. Frontend only.
+
 **Test suite health.** Two test files currently crash *during collection* on
 this machine for reasons unrelated to any recent change — see §4.
 
@@ -1208,3 +1211,129 @@ Python 3.12.10 · pytest 9.1.1 · Node 24.18.0 · npm 11.18.0.
 `frontend/dist/`, `outputs/`, `reports/` and `*.egg-info/` were already ignored,
 and the two generated files that *are* committed on purpose — the dashboard
 template and `tokens.css` — each have a `--check` guarding them.
+
+---
+
+## 10. Phase 2 — Dashboard State Consistency
+
+**Added by PR 10** (branch `feature/dashboard-state-consistency`). Frontend
+only: no Python changed, no payload field added, `SCHEMA_VERSION` untouched.
+The one non-frontend file in the diff is
+`call_forecast/assets/dashboard_template.html`, which is the committed build
+artefact and had to be re-synced (§6).
+
+### The bug
+
+PR 7 made the rail a filter, and four sections learned to answer to it —
+forecasts, monthly cost, model comparison and explainability. Three did not.
+The visible symptom was the at-a-glance tiles: selecting *Daily cost* left a
+"Next 30 days — 218 calls" tile standing above a page with no volume card on it,
+and an "Alerts raised 102" tile counting rules that fire on targets the reader
+had just filtered away. The tiles were not stale in the sense of not
+re-rendering — `App` re-rendered them on every selection — they were stale in
+the sense that nothing in them *depended* on the selection.
+
+### What changed
+
+**`src/lib/selectionView.ts` is new, and it is the point of the PR.**
+`selection.ts` answers "what did the reader choose"; this answers "what does that
+choice mean for the payload". Five pure functions — `trimDaily`,
+`trimHorizons`, `headlineRollup`, `isAnomalyVisible`, `selectAnomalies` — payload
+in, payload-shaped value out. No DOM, no `location`, no React, so the whole
+contract is testable without jsdom, and it sits beside `selection.ts` rather
+than inside a component because three sections now read it.
+
+It exists because the duplication had already started. `ForecastCard` trimmed
+`daily` and `horizons` inline; the tiles were about to need the same rule to
+resolve a headline, and anomaly counts were about to be tallied a second time.
+Two copies of a filter is how a dashboard ends up with a cost tile above a page
+showing call volume.
+
+- **`AtAGlanceSection`** takes `selectedTarget` and `horizon`. Each forecast
+  tile is gated by the same `isTargetVisible` every other section uses, and the
+  alert tile reads `selectAnomalies`. "Calls in period" deliberately does not
+  filter: it is an ingestion fact, one dataset feeds every model, and a tile
+  that changed with the rail there would be inventing a distinction.
+- **`AnomaliesSection`** takes `selectedTarget` and scopes the timeline, the
+  rule tally and the recent-alert disclosure through the *same* call the tile
+  makes. The tile and the tally therefore cannot disagree — that is the design,
+  not a coincidence. The observed volume line stays whole: it is history, not a
+  model's output, and the markers need something to sit on.
+- **`DataQualitySection`** takes `selectedTarget` and **still does not filter**.
+  Every advisory is a property of the ingested dataset. What a selection changes
+  is that the banner *says* it describes the whole run, so a reader does not
+  read an unfiltered section as an unresponsive one. Same for the anomaly
+  section's scope note: a short table under a filter must not be mistakable for
+  a quiet week.
+- **`ForecastsSection`** is unchanged in behaviour — its two inline trims now
+  call the shared ones.
+
+### Two decisions worth knowing
+
+***Anomalies bind to a target through `metric`, and `overnight_calls` binds to
+none.*** Every rule reports a target key in `metric` except
+`overnight_activity`, which reports `overnight_calls` — a property of the run
+rather than of any forecast. A target selection therefore drops it. It is
+info-level and has never been on the timeline, so the chart is unaffected;
+`selectAnomalies` is where that is written down.
+
+***The headline horizon is a preference now, not a constant.*** `dashboard.py`
+hard-coded 30 and so did this section, for a good reason: the tile says "next 30
+days" in words, so reading `cfg.forecast.horizons` would let the label and the
+number drift. But PR 7 gave the reader a horizon control, and a 30-day tile
+above cards trimmed to fewer days is the same staleness in a different disguise.
+`headlineRollup(forecast, horizon, 30)` prefers 30, falls back to the longest
+rollup at or under the chosen horizon, and returns the row — the caller writes
+its label *from that row*, so the words and the number still cannot drift. At
+the default 90-day horizon every tile reads exactly as it did before, which is
+the regression argument.
+
+**`selectAnomalies` returns its input by identity under "All"**, so the common
+case allocates nothing and the memos downstream keep their identity.
+
+### Tests: 163 frontend, up from 130
+
+| File | Tests | What it pins |
+|---|---|---|
+| `lib/selectionView.test.ts` | 14 | the pure contract — trims, headline fallback, metric binding, recomputed counts and tallies, source left untouched |
+| `sections/AtAGlanceSection.test.tsx` | 8 | tiles appear and disappear with the rail, the alert tile scopes, "All" restores, the label is written from the row it quotes |
+| `sections/AnomaliesSection.test.tsx` | 6 | the tally narrows and comes back, the scope note, the empty case |
+| `sections/DataQualitySection.test.tsx` | 5 | advisories are *identical* under a selection, the scope note, still nothing on a clean run |
+
+No existing test was modified or weakened. The three new component files follow
+PR 7's convention — `// @vitest-environment jsdom` docblock, Plotly mocked.
+
+### Verified against a live dev server at 1280px
+
+On the 210-day sample fixture, through the rail rather than by hand-editing the
+fragment:
+
+```
+(All)                            5 tiles · 102 alerts · 3 forecast cards · 17 tables · no scope notes
+#model=total_cost                3 tiles · 73 alerts (31 critical · 42 warning) · 1 card · 2 scope notes
+#model=call_volume&horizon=30    3 tiles · 1 alert · "Next 30 days" · 31 rollup rows
+(All, again)                     5 tiles · 102 alerts · 3 cards · 17 tables — byte-for-byte the first line
+```
+
+No console errors, no horizontal page overflow. The 102 → 73 → 1 → 102 sequence
+is the acceptance criterion: the tile now moves with the page and "All" restores
+the aggregate.
+
+### Verified locally, PR 10
+
+Node 24.18.0 · npm 11.16.0.
+
+- `npm run typecheck` — clean.
+- `npm test` — **163 passed** (130 before this PR).
+- `npm run build` → `dist/index.html` at **1,675,809 bytes** (1,674,436 before).
+- `scripts/sync_template.py` re-run and `--check` clean; `gen_tokens.py --check`
+  clean (no `THEME` change).
+- `scripts/check_bundle_size.py` — projected **1,951,083 of 2,000,000**;
+  headroom 48,917 bytes, down from 50,290.
+
+**`pytest` was not run: this checkout has no Python environment** — no `pandas`,
+no `pytest`, no venv under `~/.venvs`. Nothing under `call_forecast/` changed
+except the regenerated template, and the two stdlib-only gates that cover it
+(`sync_template.py --check`, `check_bundle_size.py`) both pass, so CI's
+`backend` and `dashboard` jobs are the first real run of the Python suite
+against this branch.

@@ -1,27 +1,37 @@
-import type { DashboardPayload, ForecastSection, HorizonRollup } from '../../data/types';
+import { useMemo } from 'react';
+import type { DashboardPayload, HorizonRollup } from '../../data/types';
 import { formatCount, formatCurrency } from '../../lib/format';
+import { isTargetVisible } from '../../lib/selection';
+import { headlineRollup, selectAnomalies } from '../../lib/selectionView';
 import { Section, StatTile, TileGrid } from '../primitives';
 import type { TileTone } from '../primitives';
 
 /**
- * The headline horizon, in days.
+ * The horizon the tiles quote when the reader has not narrowed past it.
  *
- * Hard-coded to 30 in `dashboard.py` rather than read from
- * `cfg.forecast.horizons`, and kept hard-coded here: these tiles say "next 30
- * days" in words, so reading the first configured horizon would let the label
- * and the number drift apart.
+ * Hard-coded to 30 in `dashboard.py`, and still the preference here: 30 days is
+ * the figure this dashboard is read for. It is a *preference* rather than a
+ * constant now, because the reader can trim the forecast cards to a shorter
+ * period and a tile quoting 30 days beside cards showing fewer would be the
+ * stale number in a different disguise. `headlineRollup` resolves the two, and
+ * the label is written from the row it returns so the words and the number
+ * cannot drift apart.
  */
-const HEADLINE_DAYS = 30;
-
-function rollupFor(forecast: ForecastSection | undefined): HorizonRollup | undefined {
-  return forecast?.horizons.find((horizon) => horizon.days === HEADLINE_DAYS);
-}
+const PREFERRED_DAYS = 30;
 
 interface Tile {
   label: string;
   value: string;
   sub?: string;
   tone?: TileTone;
+}
+
+interface AtAGlanceSectionProps {
+  payload: DashboardPayload;
+  /** The rail's target, or `null` for "All". */
+  selectedTarget: string | null;
+  /** The forecast horizon in days; `Infinity` when the run configured none. */
+  horizon: number;
 }
 
 /**
@@ -31,9 +41,22 @@ interface Tile {
  * following `payload.targets`, matching the Python dashboard. A reader who
  * opens this every morning should find the cost tile in the same place each
  * time, even on a run where one target produced no forecast.
+ *
+ * **The tiles answer to the selection.** Each forecast tile belongs to a target
+ * and is filtered with that target's cards, through the same `isTargetVisible`
+ * every other section uses; the alert tile counts only the anomalies the
+ * anomaly section is showing. What stays put is "Calls in period", which is an
+ * ingestion fact — one dataset feeds every model, so it reads the same under
+ * any selection rather than going stale under one.
  */
-export function AtAGlanceSection({ payload }: { payload: DashboardPayload }) {
+export function AtAGlanceSection({ payload, selectedTarget, horizon }: AtAGlanceSectionProps) {
   const { ingestion, anomalies, forecasts } = payload;
+
+  const scopedAnomalies = useMemo(
+    () => selectAnomalies(anomalies, selectedTarget),
+    [anomalies, selectedTarget],
+  );
+
   const tiles: Tile[] = [];
 
   const perDay = ingestion.rows_kept / Math.max(ingestion.calendar_days, 1);
@@ -44,41 +67,47 @@ export function AtAGlanceSection({ payload }: { payload: DashboardPayload }) {
     sub: `${perDay.toFixed(1)}/day average`,
   });
 
+  /** A forecast tile is shown only when its target's cards are. */
+  function rollupFor(target: string): HorizonRollup | undefined {
+    if (!isTargetVisible(target, selectedTarget)) return undefined;
+    return headlineRollup(forecasts[target], horizon, PREFERRED_DAYS);
+  }
+
   const volume = forecasts['call_volume'];
-  const volume30 = rollupFor(volume);
+  const volume30 = rollupFor('call_volume');
   if (volume && volume30) {
     // Python prints `int(interval_level * 100)`, which truncates. 0.9 * 100 is
     // 90.000000000000014 in binary floating point, so trunc and round agree
     // here — but at 0.95 they would not, and truncation is what ships today.
     const level = Math.trunc(volume.intervalLevel * 100);
     tiles.push({
-      label: 'Next 30 days',
+      label: `Next ${volume30.days} days`,
       value: `${formatCount(volume30.forecast)} calls`,
       sub: `${formatCount(volume30.lower)}–${formatCount(volume30.upper)} at ${level}%`,
     });
   }
 
   const cost = forecasts['total_cost'];
-  const cost30 = rollupFor(cost);
+  const cost30 = rollupFor('total_cost');
   if (cost && cost30) {
     tiles.push({
-      label: '30-day cost',
+      label: `${cost30.days}-day cost`,
       value: formatCurrency(cost30.forecast),
       sub: `${formatCurrency(cost30.lower)}–${formatCurrency(cost30.upper)}`,
     });
   }
 
   const duration = forecasts['avg_duration_sec'];
-  const duration30 = rollupFor(duration);
+  const duration30 = rollupFor('avg_duration_sec');
   if (duration && duration30) {
     tiles.push({
       label: 'Avg duration',
       value: `${formatCount(duration30.forecast)}s`,
-      sub: 'forecast, next 30 days',
+      sub: `forecast, next ${duration30.days} days`,
     });
   }
 
-  const { critical, warning } = anomalies.counts;
+  const { critical, warning } = scopedAnomalies.counts;
   tiles.push({
     label: 'Alerts raised',
     // No thousands separator in the Python original, and none added here.

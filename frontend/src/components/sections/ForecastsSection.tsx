@@ -9,6 +9,7 @@ import type {
 import { deriveColumns } from '../../lib/columns';
 import { buildForecastFigure } from '../../lib/chart/figures';
 import { isTargetVisible } from '../../lib/selection';
+import { trimDaily, trimHorizons } from '../../lib/selectionView';
 import { PlotlyChart, useChartPalette } from '../charts';
 import { Callout, Card, DataTable, HorizonSelect, Section, TableView } from '../primitives';
 import type { Column } from '../primitives';
@@ -61,17 +62,17 @@ function ForecastCard({
   const palette = useChartPalette();
 
   // Trimmed once and reused everywhere the card shows daily rows, so the
-  // figure, the daily disclosure and its derived columns all agree on the
-  // same cut. `step <= horizon` is true for every row when horizon is
-  // `Infinity` — a run configured no horizons — so nothing here special-cases
-  // that; it falls out of the comparison.
+  // figure, the daily disclosure and its derived columns all agree on the same
+  // cut. The two trims live in `lib/selectionView.ts` because the at-a-glance
+  // tiles resolve their headline through the same rule — one definition of
+  // what a horizon means, rather than one per reader of it.
   const trimmedDaily = useMemo(
-    () => forecast.daily.filter((row) => row.step <= horizon),
+    () => trimDaily(forecast.daily, horizon),
     [forecast.daily, horizon],
   );
 
   const trimmedHorizons = useMemo(
-    () => forecast.horizons.filter((row) => row.days <= horizon),
+    () => trimHorizons(forecast.horizons, horizon),
     [forecast.horizons, horizon],
   );
 

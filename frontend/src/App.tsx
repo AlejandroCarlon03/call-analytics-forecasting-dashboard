@@ -121,6 +121,14 @@ export function App() {
 
   const { target: selectedTarget, horizon } = selection;
 
+  // How the selection reads in prose. The run-wide sections use it to say what
+  // they are *not* filtered by, which is the difference between a section that
+  // is deliberately whole and one that looks stale.
+  const selectedLabel =
+    selectedTarget === null
+      ? undefined
+      : (state.payload.targetMeta[selectedTarget]?.label ?? selectedTarget);
+
   return (
     <AppShell
       header={
@@ -142,8 +150,16 @@ export function App() {
           payload it may find empty, and returns null rather than an empty
           card when it does — the same way the Python dashboard omitted a
           block whose frame was empty. */}
-      <DataQualitySection ingestion={state.payload.ingestion} />
-      <AtAGlanceSection payload={state.payload} />
+      <DataQualitySection
+        ingestion={state.payload.ingestion}
+        selectedTarget={selectedTarget}
+        selectedLabel={selectedLabel}
+      />
+      <AtAGlanceSection
+        payload={state.payload}
+        selectedTarget={selectedTarget}
+        horizon={horizon}
+      />
       <ForecastsSection
         forecasts={state.payload.forecasts}
         targets={state.payload.targets}
@@ -178,6 +194,8 @@ export function App() {
         anomalies={state.payload.anomalies}
         config={state.payload.config.anomalies}
         daily={state.payload.daily}
+        selectedTarget={selectedTarget}
+        selectedLabel={selectedLabel}
       />
       <ScenariosSection scenarios={state.payload.scenarios} />
     </AppShell>
