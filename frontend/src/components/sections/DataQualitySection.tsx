@@ -54,16 +54,44 @@ function advisories(ingestion: IngestionReport): Advisory[] {
   return items;
 }
 
+interface DataQualitySectionProps {
+  ingestion: IngestionReport;
+  /** The rail's target, or `null` for "All". */
+  selectedTarget: string | null;
+  /** How the selected target is written in prose, for the scope note. */
+  selectedLabel?: string | undefined;
+}
+
 /**
  * The data-quality banner.
  *
  * Renders nothing when there is nothing to say — a clean run should not carry
  * an empty "Data quality" heading, and the Python dashboard omits the section
  * entirely in that case.
+ *
+ * **These advisories do not filter, and that is the synchronised behaviour**,
+ * not an omission: every one of them is a property of the ingested dataset, and
+ * one dataset feeds every model. Filtering them per target would invent a
+ * distinction the run does not have. What a selection changes is that the
+ * section says so, rather than leaving a reader to assume the banner narrowed
+ * with the rest of the page.
  */
-export function DataQualitySection({ ingestion }: { ingestion: IngestionReport }) {
+export function DataQualitySection({
+  ingestion,
+  selectedTarget,
+  selectedLabel,
+}: DataQualitySectionProps) {
   const items = advisories(ingestion);
   if (items.length === 0) return null;
+
+  if (selectedTarget !== null) {
+    items.unshift({
+      tone: 'info',
+      text:
+        `Showing ${selectedLabel ?? selectedTarget} only. The advisories below describe ` +
+        'the whole run — every model is fitted on the same ingested data.',
+    });
+  }
 
   return (
     <Section title="Data quality">

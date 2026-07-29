@@ -8,8 +8,9 @@ import type {
 } from '../../data/types';
 import { formatPercent } from '../../lib/format';
 import { buildAnomalyFigure } from '../../lib/chart/figures';
+import { selectAnomalies } from '../../lib/selectionView';
 import { PlotlyChart, useChartPalette } from '../charts';
-import { Card, DataTable, Section, TableView } from '../primitives';
+import { Callout, Card, DataTable, Section, TableView } from '../primitives';
 import type { Column } from '../primitives';
 
 /** How many flagged days the Python disclosure showed. All of them are in the CSVs. */
@@ -62,6 +63,10 @@ interface AnomaliesSectionProps {
   config: ConfigSummary['anomalies'];
   /** Observed history — the line the flagged days are marked on. */
   daily: readonly DailyRow[];
+  /** The rail's target, or `null` for "All". */
+  selectedTarget: string | null;
+  /** How the selected target is written in prose, for the scope note. */
+  selectedLabel?: string | undefined;
 }
 
 /**
@@ -70,23 +75,47 @@ interface AnomaliesSectionProps {
  * The timeline sits above the tables rather than in a section of its own,
  * because a flagged day means nothing without the line it departs from — and
  * the marker's height is read off that line, not off the rule's own `actual`.
+ *
+ * **A target selection scopes this section**, through `selectAnomalies` — the
+ * same derivation the at-a-glance alert tile reads, so the tile and the tally
+ * table can never report different totals. The volume line itself stays whole:
+ * it is observed history, not a model's output, and the markers need something
+ * to sit on.
  */
-export function AnomaliesSection({ anomalies, config, daily }: AnomaliesSectionProps) {
+export function AnomaliesSection({
+  anomalies,
+  config,
+  daily,
+  selectedTarget,
+  selectedLabel,
+}: AnomaliesSectionProps) {
   const palette = useChartPalette();
 
+  const scoped = useMemo(
+    () => selectAnomalies(anomalies, selectedTarget),
+    [anomalies, selectedTarget],
+  );
+
   const figure = useMemo(
-    () => buildAnomalyFigure({ daily, anomalies: anomalies.items, palette }),
-    [daily, anomalies.items, palette],
+    () => buildAnomalyFigure({ daily, anomalies: scoped.items, palette }),
+    [daily, scoped.items, palette],
   );
 
   // Sliced here rather than passed as `maxRows` so the disclosure label and the
   // row count cannot disagree, and so no "showing first 25 of 173" note appears
   // where the Python dashboard showed none.
-  const recent = useMemo(() => anomalies.items.slice(0, RECENT_LIMIT), [anomalies.items]);
+  const recent = useMemo(() => scoped.items.slice(0, RECENT_LIMIT), [scoped.items]);
 
   return (
     <Section title="Anomalies and alerts" blurb={blurbFor(config)}>
       <Card>
+        {selectedTarget === null ? null : (
+          // Said rather than implied: a shorter table under a filter should not
+          // be mistakable for a quieter week.
+          <Callout tone="info">
+            {`Showing alerts on ${selectedLabel ?? selectedTarget} only. Choose "All" for every rule.`}
+          </Callout>
+        )}
         <PlotlyChart
           figure={figure}
           description={
@@ -97,7 +126,7 @@ export function AnomaliesSection({ anomalies, config, daily }: AnomaliesSectionP
         />
         <DataTable
           columns={TALLY_COLUMNS}
-          rows={anomalies.byRule}
+          rows={scoped.byRule}
           caption="Flagged days per rule and severity"
           digits={0}
           sortable
