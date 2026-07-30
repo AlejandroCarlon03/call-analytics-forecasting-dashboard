@@ -1677,11 +1677,69 @@ present after the JSON one; no console output; no horizontal page overflow.
 - `npm run typecheck` clean · `npm test` **246 passed** (181 before).
 - `npm run build` -> `dist/index.html` **1,697,623 bytes** (1,675,809 before PR 11).
 - `sync_template.py --check` and `gen_tokens.py --check` clean.
-- `check_bundle_size.py` — projected **1,972,897 of 2,000,000**.
+- `check_bundle_size.py` — projected **1,972,897**, under the 2,000,000
+  advisory and well under the 3,000,000 limit (see the budget policy above).
 
 **`pytest` was not run: this checkout has no Python environment**, unchanged
 from PRs 10 and 11. Nothing under `call_forecast/` changed except the
 regenerated template. CI is the first real run.
+
+### The size budgets became two-tier, and that is now the policy
+
+PR 12's CI run failed on `test_projection_is_close_to_the_real_generated_size`,
+and the failure was informative rather than annoying. **It was not the 2 MB
+budget.** That passed. What failed was a *separate* assertion pinning the
+projection to PR 6's measured **1,946,364 bytes ±1%** — a hardcoded historical
+constant that ordinary growth had walked past by about 7 KB.
+
+That is the wrong shape for the assertion. The test's stated job is to prove
+the script's arithmetic still models the substitution `build_dashboard_react()`
+performs; instead it made a statement about how big the bundle happened to be
+in PR 6. Every PR that legitimately grew the dashboard would break a test about
+*arithmetic*, and the only two fixes available were to edit the constant
+(forever) or widen the tolerance (which would quietly stop it checking
+anything).
+
+**The fix was to compare the projection against the substitution actually
+performed**, on the two files that are already committed. One string replace,
+no pipeline run, and *exact* — the tolerance is gone, because a tolerance only
+ever existed to absorb the stale constant. It now fails if and only if the
+script's arithmetic and the renderer's substitution disagree, which is the one
+thing it was meant to catch. Nothing to bump, ever.
+
+**Alongside it, every size gate became advisory + limit.** The project grows;
+a gate that turns red on ordinary progress gets silenced, and a silenced gate
+protects nothing.
+
+| Gate | Advisory (warns, exit 0) | Limit (fails) | Now |
+|---|---|---|---|
+| Generated dashboard | 2,000,000 | 3,000,000 | 1,972,897 |
+| Committed template | 1,750,000 | 2,600,000 | 1,697,623 |
+
+The advisory is the size the artefact *wants* to be — small enough to attach to
+an email and quick to open from `file://`. Crossing it prints a loud, specific
+NOTE saying how far the real limit is, and passes. **Raising an advisory as the
+project grows is expected and is a normal part of the PR that grows it.**
+Raising a *limit* should require an argument in the PR that does it: at 3 MB the
+page is half again the size of a build that already contains all of Plotly,
+which means something was added that nobody costed.
+
+Two properties are held by tests rather than by discipline:
+`tests/test_bundle_size_check.py` asserts the advisory sits strictly below the
+limit (an advisory at or above it would be unreachable, and the warning tier
+would never print), and **drives the warning path through the real entry
+point** — an untested warning path is one refactor away from being silent, and
+silence here reads exactly like "comfortably under budget".
+`test_react_dashboard.py` imports `DASHBOARD_LIMIT_BYTES` and
+`TEMPLATE_LIMIT_BYTES` rather than restating them, so the render test and the
+script cannot drift apart. It deliberately does **not** assert the advisory:
+failing on it there would put the policy back to one tier by the side door.
+
+The lever when a *limit* is genuinely approached is unchanged and is still the
+right one: a custom Plotly partial bundle (`plotly.js/lib/core` +
+scatter/bar/heatmap, roughly half of the current 1.42 MB), which also means
+revisiting `src/types/plotly.d.ts`. Trimming the payload remains the wrong move
+— it is the contract.
 
 ### Two things left for later
 
