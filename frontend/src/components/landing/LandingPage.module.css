@@ -1,0 +1,328 @@
+/*
+ * The landing page.
+ *
+ * Every colour, radius and duration here is an existing token — the palette is
+ * audited and generated from `call_forecast.dashboard.THEME` (§8), and the
+ * motion tokens live in `global.css` (§11). No literal, no new token, no
+ * `THEME` change, so `gen_tokens.py --check` stays clean.
+ *
+ * The layout is fluid rather than breakpoint-driven wherever it can be:
+ * `clamp()` on the type scale and `auto-fit` grids mean the page works at
+ * every width between 320px and the token `--maxw`, not only at the three the
+ * brief names. Two media queries handle the things fluid rules cannot — the
+ * hero's measure and the action row's direction on a phone.
+ */
+
+.page {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 20px clamp(16px, 4vw, 40px) 40px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.main {
+  flex: 1 1 auto;
+  /* The focus ring on a `-1` main would otherwise be drawn tight against the
+     content; the outline offset in global.css handles the rest. */
+  outline-offset: 4px;
+}
+
+/* ---------------------------------------------------------------- hero --- */
+
+.hero {
+  padding: clamp(40px, 9vh, 88px) 0 clamp(32px, 6vh, 56px);
+  max-width: 72ch;
+  animation: landingEnter var(--motion-base) var(--motion-ease) both;
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  /* `--ink2`, not `--series1`. The series hues are tuned to sit on a chart's
+     plot area against a line, not to carry 13px text on the page background —
+     `--series1` measures 4.0:1 there in the light palette, under AA. The
+     accent on this page is the primary button, which is enough hierarchy for
+     one hero. */
+  color: var(--ink2);
+}
+
+.title {
+  margin: 0 0 16px;
+  /* Fluid rather than stepped: the hero is the one place on the page where a
+     fixed size either overflows a 320px phone or looks lost at 1440px. */
+  font-size: clamp(32px, 5.5vw, 52px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.lead {
+  margin: 0;
+  font-size: clamp(16px, 1.4vw, 19px);
+  line-height: 1.6;
+  color: var(--ink2);
+  max-width: 62ch;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 32px;
+}
+
+.primary,
+.secondary {
+  font: inherit;
+  font-weight: 600;
+  font-size: 15px;
+  border-radius: 8px;
+  padding: 11px 20px;
+  cursor: pointer;
+  /* Only colour properties transition. Nothing here may animate a box
+     dimension — the same rule §11 set for the rail, and for the same reason. */
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+
+/*
+ * ***`--seq-4`, not `--series1`, and the reason is contrast.*** White on
+ * `--series1` measures 4.46:1 in the light palette and 3.64:1 in the dark one
+ * — both under AA for text this size, and the dark case badly. The sequential
+ * ramp is the same seven steps in *both* palettes (a property of the audited
+ * palette, not an oversight in `tokens.css`), so one step carries white text
+ * at 5.4:1 in either theme and the button needs no theme-aware rule.
+ *
+ * `#ffffff` is the one literal on this page and it is deliberate: `--ink`
+ * inverts with the theme, which on a blue button that does *not* invert would
+ * mean dark text on blue in the dark palette.
+ */
+.primary {
+  background: var(--seq-4);
+  border: 1px solid var(--seq-4);
+  color: #ffffff;
+}
+
+.primary:hover {
+  background: var(--seq-5);
+  border-color: var(--seq-5);
+}
+
+.secondary {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--ink);
+}
+
+.secondary:hover {
+  border-color: var(--muted);
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+  margin-top: 24px;
+}
+
+/* One rule for both the docs `<button>` and the repository `<a>`: they read as
+   the same class of secondary action, and the difference between them is what
+   they *do*, which the markup already carries. */
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink2);
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  cursor: pointer;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition:
+    color var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease);
+}
+
+.link:hover {
+  color: var(--ink);
+  border-bottom-color: var(--muted);
+}
+
+.indicator {
+  color: var(--muted);
+  opacity: 0.65;
+  transition: opacity var(--motion-fast) var(--motion-ease);
+}
+
+.link:hover .indicator,
+.link:focus-visible .indicator {
+  opacity: 1;
+}
+
+/* -------------------------------------------------------- capabilities --- */
+
+.sectionTitle {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 600;
+  margin: 0 0 16px;
+}
+
+.capabilities,
+.recent {
+  padding-top: clamp(28px, 5vh, 44px);
+  border-top: 1px solid var(--border);
+  animation: landingEnter var(--motion-base) var(--motion-ease) both;
+}
+
+.recent {
+  margin-top: clamp(28px, 5vh, 44px);
+}
+
+.capabilityList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  /* `auto-fit` with a floor is what makes this three columns on a desktop, two
+     on a tablet and one on a phone without naming any of those widths. */
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.capability {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  min-width: 0;
+}
+
+.capabilityTitle {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.capabilityBody {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink2);
+}
+
+/* ------------------------------------------------------ recent imports --- */
+
+.empty {
+  background: var(--surface);
+  /* Dashed, because this is a placeholder for content that will exist rather
+     than a card that happens to be empty — the border says "not yet" before
+     the copy has to. */
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 28px;
+  text-align: center;
+}
+
+.emptyTitle {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.emptyBody {
+  margin: 0 auto 18px;
+  max-width: 60ch;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink2);
+}
+
+.emptyBody code {
+  font-size: 13px;
+  background: var(--page);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.footer {
+  margin-top: clamp(32px, 6vh, 56px);
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Opacity and transform only, `both` to hold the opening frame — the same
+   shape as `cardEnter`, and covered by the same `prefers-reduced-motion`
+   kill-switch in `global.css`. */
+@keyframes landingEnter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* A phone is the one width where two side-by-side buttons each become too
+   narrow to read; below it they stack and fill. */
+@media (max-width: 520px) {
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .primary,
+  .secondary {
+    width: 100%;
+  }
+
+  .links {
+    gap: 16px;
+  }
+}

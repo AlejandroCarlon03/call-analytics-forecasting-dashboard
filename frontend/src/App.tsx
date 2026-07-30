@@ -15,6 +15,7 @@ import { Callout, Section } from './components/primitives';
 import { DocsNav, DocsView } from './components/docs';
 import type { DocPageId } from './lib/docs/types';
 import { ImportPanel } from './components/import';
+import { LandingPage } from './components/landing';
 import { ExportCenter } from './components/export/ExportCenter';
 import {
   AnomaliesSection,
@@ -73,6 +74,13 @@ function initialSourceLabel(source: PayloadSource): string {
       return 'Sample data';
   }
 }
+
+/**
+ * The id on the "Data source" section, so the landing page's primary action
+ * can send a reader to the import panel. Not a fragment anchor — see the
+ * `id` prop's doc comment on `Section`.
+ */
+const IMPORT_SECTION_ID = 'data-source';
 
 /** A payload-shaped domain for a run that has not loaded yet. */
 const NO_TARGETS: string[] = [];
@@ -141,9 +149,87 @@ export function App() {
     [payload],
   );
 
-  const { selection, selectTarget, selectHorizon, route, navigate } = useHashSelection(domain);
+  const { selection, selectTarget, selectHorizon, route, navigate, deepLink } =
+    useHashSelection(domain);
+
+  /*
+   * Has the reader entered the application?
+   *
+   * **The report no longer renders until they choose to.** Ordinary component
+   * state, not a fragment key: entering is a fact about this visit, and a URL
+   * that carried it would let a recipient skip a welcome screen they had never
+   * seen (`lib/entry.ts` has the argument in full). Nothing writes to the hash
+   * here, so PRs 7, 13 and 14's fragment contract is untouched.
+   *
+   * `deepLink` is the bypass. A link someone was sent — `#model=total_cost`,
+   * `#view=docs&page=metrics` — names a view, and putting a landing page in
+   * front of it would break exactly the linkability the fragment exists for.
+   */
+  const [entered, setEntered] = useState(false);
+
+  /*
+   * "Import Dashboard" enters *and* takes the reader to the import panel.
+   *
+   * A flag rather than a call, because the panel is not in the DOM until the
+   * render that entering causes; the effect below runs after it is. It is not
+   * a fragment anchor for the reason `Section`'s `id` prop documents — a bare
+   * `#data-source` would overwrite the selection the fragment carries.
+   */
+  const [focusImport, setFocusImport] = useState(false);
+
+  /*
+   * ***A deep link enters for good, and this effect is why it has to.***
+   * `deepLink` is a fact about the *current* fragment, and the fragment gets
+   * cleared in ordinary use: selecting "All" on the rail drops `model=`, and
+   * leaving the docs drops `view=`, both of which can empty it completely.
+   * Without this, a reader who arrived on `#model=total_cost` and then pressed
+   * "All" would be thrown back to the welcome screen mid-session — the
+   * fragment stopped naming a view, but they had plainly already entered.
+   *
+   * Latching also makes the property monotonic: nothing in this component ever
+   * sets `entered` back to false, so there is exactly one direction of travel
+   * and no path that can eject a reader from the application.
+   */
+  useEffect(() => {
+    if (deepLink) setEntered(true);
+  }, [deepLink]);
+
+  const enterDashboard = useCallback(() => setEntered(true), []);
+
+  const enterAndImport = useCallback(() => {
+    setEntered(true);
+    setFocusImport(true);
+  }, []);
+
+  useEffect(() => {
+    if (!focusImport) return;
+    setFocusImport(false);
+    const section = document.getElementById(IMPORT_SECTION_ID);
+    if (!section) return;
+    // Optional call: jsdom implements no scrolling at all, and focusing is the
+    // half of this that actually matters — a missing scroll must not cost the
+    // reader the focus move.
+    section.scrollIntoView?.({ block: 'start' });
+    // The panel's own first control, so a keyboard reader arrives *on* the
+    // thing they asked for rather than at the top of a section they then have
+    // to tab into. Focusing the section itself would need a tabindex on every
+    // section for the sake of this one.
+    section.querySelector('button')?.focus();
+  }, [focusImport]);
 
   const openDocs = useCallback(() => navigate({ view: 'docs', page: route.page }), [navigate, route.page]);
+  /*
+   * The docs, opened from the landing page.
+   *
+   * It marks the reader as entered as well, so that the docs' "Back to report"
+   * control lands them on the report it names. Returning them to the welcome
+   * screen instead would be a button that does not do what it says — and they
+   * have already made the choice the landing page exists to ask for.
+   */
+  const enterAndOpenDocs = useCallback(() => {
+    setEntered(true);
+    openDocs();
+  }, [openDocs]);
   const exitDocs = useCallback(() => navigate({ view: 'report', page: route.page }), [navigate, route.page]);
   const selectDocPage = useCallback(
     (page: DocPageId) => navigate({ view: 'docs', page }),
@@ -264,6 +350,24 @@ export function App() {
     );
   }
 
+  /*
+   * The landing page, and the one condition that decides it.
+   *
+   * `entered` is this visit's own choice; `deepLink` lets a shared link past
+   * without one. The docs are reachable from here — they carry `view=docs`, so
+   * that fragment is a deep link by definition and this branch stands aside
+   * for the one below it.
+   */
+  if (!entered && !deepLink) {
+    return (
+      <LandingPage
+        onEnter={enterDashboard}
+        onImport={enterAndImport}
+        onOpenDocs={enterAndOpenDocs}
+      />
+    );
+  }
+
   const { target: selectedTarget, horizon } = selection;
 
   // How the selection reads in prose. The run-wide sections use it to say what
@@ -327,7 +431,7 @@ export function App() {
           payload it may find empty, and returns null rather than an empty
           card when it does — the same way the Python dashboard omitted a
           block whose frame was empty. */}
-      <Section title="Data source">
+      <Section title="Data source" id={IMPORT_SECTION_ID}>
         <ImportPanel onImport={handleImport} activeSourceLabel={state.activeSourceLabel} />
         {/* Named, rather than left to be inferred from missing sections. A
             reader who imports a CSV and sees no forecasts should learn that
