@@ -20,7 +20,46 @@ import { userEvent } from '@testing-library/user-event';
 import type { DashboardPayload } from './data/types';
 import type { ImportPreview } from './lib/import/types';
 
-vi.mock('plotly.js-cartesian-dist-min', () => ({ default: { react: vi.fn(), purge: vi.fn() } }));
+vi.mock('plotly.js-cartesian-dist-min', () => ({
+  default: {
+    react: vi.fn(),
+    purge: vi.fn(),
+    // Export Center's PNG path (`lib/export/png.ts`) calls this directly, and
+    // without it here an export run throws rather than producing nothing.
+    toImage: vi.fn().mockResolvedValue(
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    ),
+  },
+}));
+
+// The engine's own download primitive is stubbed so an export run in jsdom
+// neither needs `URL.createObjectURL` (jsdom has none) nor actually clicks a
+// synthesised anchor. Tests read what `App` handed the engine off this spy's
+// calls, rather than off internal React state — the brief's own guidance.
+const downloadBlobMock = vi.fn();
+vi.mock('./lib/export/download', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./lib/export/download')>();
+  return { ...actual, downloadBlob: downloadBlobMock };
+});
+
+// Lets one test force a whole-run failure without the engine itself having a
+// throwing code path — `runExport` is documented not to throw for per-analytic
+// problems, so the only realistic way to exercise `App`'s catch block is to
+// make the call itself reject.
+let forceExportThrow: Error | null = null;
+vi.mock('./lib/export', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./lib/export')>();
+  return {
+    ...actual,
+    runExport: async (
+      request: Parameters<typeof actual.runExport>[0],
+      ctx: Parameters<typeof actual.runExport>[1],
+    ) => {
+      if (forceExportThrow) throw forceExportThrow;
+      return actual.runExport(request, ctx);
+    },
+  };
+});
 
 // Testing `App`'s reaction to an import, not the panel that fires it. The
 // stand-in fires `onImport` with whichever payload/preview the test staged
@@ -198,6 +237,227 @@ afterEach(() => {
   nextImport = null;
   loadResult = null;
   window.location.hash = '';
+  downloadBlobMock.mockClear();
+  forceExportThrow = null;
+});
+
+/** A payload carrying two forecast-bearing targets, for selection tests. */
+function twoTargetPayload(): DashboardPayload {
+  const volumeForecast = fullPayload().forecasts['call_volume'];
+  if (!volumeForecast) throw new Error('fixture missing call_volume forecast');
+  return fullPayload({
+    targets: ['call_volume', 'total_cost'],
+    config: config({ targets: ['call_volume', 'total_cost'] }),
+    targetMeta: {
+      call_volume: { label: 'Call volume', units: 'calls', aggregate: 'sum' },
+      total_cost: { label: 'Daily cost', units: 'USD', aggregate: 'sum' },
+    },
+    forecasts: {
+      call_volume: volumeForecast,
+      total_cost: {
+        ...volumeForecast,
+        target: 'total_cost',
+        modelLabel: 'Cost model',
+        daily: [
+          { date: '2026-01-11', yhat: 5, yhat_lower: 4, yhat_upper: 6, step: 1, horizon_bucket: '30d' },
+        ],
+      },
+    },
+  });
+}
+
+/** Opens the Export panel and returns the analytics fieldset's checkboxes. */
+async function openExportPanel() {
+  await userEvent.click(screen.getByRole('button', { name: 'Export…' }));
+}
+
+/** Checks the "Forecasts" analytic and clicks Export. */
+async function exportForecastsCsv() {
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Forecasts' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Export' }));
+}
+
+/** Every row across every CSV `downloadBlob` call so far, decoded and parsed. */
+async function csvRowsWritten(): Promise<string[]> {
+  const rows: string[] = [];
+  for (const call of downloadBlobMock.mock.calls) {
+    const blob = call[0] as Blob;
+    const text = await blob.text();
+    rows.push(...text.split('\n').slice(1).filter((line) => line.length > 0));
+  }
+  return rows;
+}
+
+describe('App export wiring', () => {
+  it('renders the Export Center and its analytics list reflects the payload', async () => {
+    loadResult = { payload: fullPayload(), source: 'fixture' };
+    await renderApp();
+    await openExportPanel();
+
+    // `fullPayload()` has a `call_volume` forecast and non-empty `hourly`, so
+    // these are offered; it has no evaluations, no monthly rows and no
+    // explanations, so those analytics are not.
+    expect(screen.getByRole('checkbox', { name: 'Forecasts' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Arrivals heatmap' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Anomalies' })).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Monthly cost' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Model comparison' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Feature importance' })).not.toBeInTheDocument();
+  });
+
+  it('respects the current model selection: #model=total_cost covers only that target', async () => {
+    loadResult = { payload: twoTargetPayload(), source: 'fixture' };
+    window.location.hash = '#model=total_cost';
+    await renderApp();
+    await openExportPanel();
+    await exportForecastsCsv();
+
+    await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(1));
+    const rows = await csvRowsWritten();
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.startsWith('total_cost,'))).toBe(true);
+  });
+
+  it('respects "All Models": no fragment covers every target', async () => {
+    loadResult = { payload: twoTargetPayload(), source: 'fixture' };
+    await renderApp();
+    await openExportPanel();
+    await exportForecastsCsv();
+
+    await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(1));
+    const rows = await csvRowsWritten();
+    expect(rows.some((row) => row.startsWith('call_volume,'))).toBe(true);
+    expect(rows.some((row) => row.startsWith('total_cost,'))).toBe(true);
+  });
+
+  it('exports after switching models: the second export reflects the second selection', async () => {
+    loadResult = { payload: twoTargetPayload(), source: 'fixture' };
+    await renderApp();
+
+    // First export, under `call_volume`.
+    const volumeTab = await screen.findByRole('button', { name: /Call volume/ });
+    await userEvent.click(volumeTab);
+    await waitFor(() => expect(window.location.hash).toBe('#model=call_volume'));
+    await openExportPanel();
+    await exportForecastsCsv();
+    await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(1));
+    const firstRows = await csvRowsWritten();
+    expect(firstRows.every((row) => row.startsWith('call_volume,'))).toBe(true);
+
+    // Dismiss the notification, switch targets, and export again. If the
+    // export handler had closed over the first render's `selection`, this
+    // second call would still produce `call_volume` rows.
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    const costTab = await screen.findByRole('button', { name: /Daily cost/ });
+    await userEvent.click(costTab);
+    await waitFor(() => expect(window.location.hash).toBe('#model=total_cost'));
+    // "Forecasts" is already checked from the first export — click Export
+    // directly rather than toggling it off.
+    await userEvent.click(screen.getByRole('button', { name: 'Export' }));
+
+    await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(2));
+    const secondCallBlob = downloadBlobMock.mock.calls[1]![0] as Blob;
+    const secondText = await secondCallBlob.text();
+    const secondRows = secondText.split('\n').slice(1).filter((line) => line.length > 0);
+    expect(secondRows.every((row) => row.startsWith('total_cost,'))).toBe(true);
+  });
+
+  it('respects the horizon: #horizon=30 trims what an export contains', async () => {
+    const wide = fullPayload({
+      forecasts: {
+        call_volume: {
+          ...fullPayload().forecasts['call_volume']!,
+          horizons: [
+            { days: 30, measure: 'total', forecast: 300, lower: 250, upper: 350 },
+            { days: 90, measure: 'total', forecast: 900, lower: 800, upper: 1000 },
+          ],
+          daily: [
+            { date: '2026-01-11', yhat: 10, yhat_lower: 8, yhat_upper: 12, step: 1, horizon_bucket: '30d' },
+            { date: '2026-03-11', yhat: 11, yhat_lower: 9, yhat_upper: 13, step: 60, horizon_bucket: '90d' },
+          ],
+        },
+      },
+      config: config({ targets: ['call_volume'], horizons: [30, 90] }),
+    });
+    loadResult = { payload: wide, source: 'fixture' };
+    window.location.hash = '#horizon=30';
+    await renderApp();
+    await openExportPanel();
+    await exportForecastsCsv();
+
+    await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(1));
+    const rows = await csvRowsWritten();
+    expect(rows.length).toBe(1);
+    expect(rows[0]).toContain('2026-01-11');
+  });
+
+  it('never writes to the hash when exporting, and leaves navigation working afterwards', async () => {
+    loadResult = { payload: twoTargetPayload(), source: 'fixture' };
+    window.location.hash = '#model=call_volume';
+    await renderApp();
+    await openExportPanel();
+    await exportForecastsCsv();
+
+    await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(1));
+    expect(window.location.hash).toBe('#model=call_volume');
+
+    // The rail still works after an export.
+    const costTab = await screen.findByRole('button', { name: /Daily cost/ });
+    await userEvent.click(costTab);
+    await waitFor(() => expect(window.location.hash).toBe('#model=total_cost'));
+  });
+
+  it('narrows the offered analytics after a CSV import sets analysisAvailable: false', async () => {
+    loadResult = { payload: fullPayload(), source: 'fixture' };
+    await renderApp();
+    await openExportPanel();
+    expect(screen.getByRole('checkbox', { name: 'Forecasts' })).toBeInTheDocument();
+
+    await fireImport(csvPayload(), preview('raw_calls.csv'));
+
+    // The import drops the rail (no targets left), which changes `AppShell`'s
+    // layout structurally and remounts the report subtree — including the
+    // panel's own open/closed state, same as any other in-page control would
+    // lose local state across that shape change. Reopen it.
+    await waitFor(() =>
+      expect(screen.getByText('Active source: raw_calls.csv')).toBeInTheDocument(),
+    );
+    await openExportPanel();
+
+    // `forecasts` `requiresAnalysis`, so it drops out once the import is a
+    // raw CSV; `Arrivals heatmap` does not require analysis and, since the
+    // CSV fixture still carries `hourly` rows, stays offered.
+    expect(screen.queryByRole('checkbox', { name: 'Forecasts' })).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Arrivals heatmap' })).toBeInTheDocument();
+  });
+
+  it('clears a stale outcome when the selection changes', async () => {
+    loadResult = { payload: twoTargetPayload(), source: 'fixture' };
+    await renderApp();
+    await openExportPanel();
+    await exportForecastsCsv();
+
+    // The outcome renders twice by design (announced in the live region, shown
+    // in the Callout), so this asserts on the live region specifically.
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/Exported 1 file/));
+
+    const costTab = await screen.findByRole('button', { name: /Daily cost/ });
+    await userEvent.click(costTab);
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).not.toHaveTextContent(/Exported 1 file/);
+    });
+  });
+
+  it('surfaces a whole-run export failure to the reader', async () => {
+    loadResult = { payload: fullPayload(), source: 'fixture' };
+    await renderApp();
+    forceExportThrow = new Error('disk is full');
+    await openExportPanel();
+    await exportForecastsCsv();
+
+    expect(await screen.findByText('disk is full')).toBeInTheDocument();
+  });
 });
 
 describe('App import wiring', () => {
