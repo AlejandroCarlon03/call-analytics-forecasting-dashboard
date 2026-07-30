@@ -17,6 +17,7 @@ import type { DocPageId } from './lib/docs/types';
 import { ImportPanel } from './components/import';
 import { LandingPage } from './components/landing';
 import { ExportCenter } from './components/export/ExportCenter';
+import { ExecutiveSummarySection } from './components/summary';
 import {
   AnomaliesSection,
   ArrivalsSection,
@@ -455,6 +456,18 @@ export function App() {
           onDismiss={dismissExport}
         />
       </Section>
+      {/* Above the analysis, because that is the reading order it exists to
+          enable: how many calls, at what cost, on which model and in which
+          period, before the reader scrolls into a single figure. It answers to
+          the same selection props every section below it does and holds no
+          state of its own, so the rail and an import both move it for free. */}
+      <ExecutiveSummarySection
+        payload={state.payload}
+        selectedTarget={selectedTarget}
+        horizon={horizon}
+        analysisAvailable={state.analysisAvailable}
+        {...(selectedLabel === undefined ? {} : { selectedLabel })}
+      />
       <DataQualitySection
         ingestion={state.payload.ingestion}
         selectedTarget={selectedTarget}

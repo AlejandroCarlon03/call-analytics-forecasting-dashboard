@@ -1,0 +1,100 @@
+/*
+ * The executive summary card.
+ *
+ * Every colour, radius and duration is an existing token — the palette is
+ * generated from `call_forecast.dashboard.THEME` (§8) and the motion tokens
+ * live in `global.css` (§11). No literal, no new token, so
+ * `gen_tokens.py --check` stays clean.
+ *
+ * The type scale is deliberately a step below `StatTile`'s 30px. Eight cards
+ * at tile weight is eight competing headlines; the point of this grid is that
+ * the eye can cross it, which needs the label row to be scannable more than it
+ * needs each number to be enormous.
+ */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  /* Load-bearing in a grid: without it a long detail line makes the track wider
+     than its share and the row stops being even. */
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /* Equal heights across a row, with the detail line pinned to the bottom, so
+     the eight numbers sit on one baseline instead of stepping. */
+  height: 100%;
+}
+
+/*
+ * ***`--ink2`, not `--muted`, and the reason is contrast.*** `StatTile` labels
+ * this row at `--muted`, which measures **3.50:1** on `--surface` in the light
+ * palette — under AA for 12px text. `--ink2` is 7.73:1 light and 9.72:1 dark.
+ * The recession the label needs is carried by the size, the weight and the
+ * uppercasing, none of which cost contrast; only the colour did. Same call
+ * §16 made when it moved the landing hero's eyebrow off `--series1`, and it is
+ * the one place this card deliberately departs from `StatTile`.
+ */
+.label {
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.value {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-top: 6px;
+  /* A model name is prose and wraps; a currency figure is not and should not be
+     broken mid-number. `balance` keeps a two-line model label even. */
+  text-wrap: balance;
+}
+
+.detail,
+.unavailable {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink2);
+  /* Pushes the supporting line to the card's foot so cards of different
+     content length still align. */
+  margin-top: auto;
+  padding-top: 6px;
+}
+
+/* The reason a card is empty is the card's whole content when it is empty, so
+   it is not dimmed below the detail line it replaces. `--muted` would put the
+   one sentence the reader needs at 3.5:1. */
+.unavailable {
+  font-style: italic;
+}
+
+/*
+ * A tone is carried by the number alone, never by the card's fill — the same
+ * restraint `StatTile` uses. A tinted surface would make one card read as a
+ * different *kind* of card rather than as the same card with a notable value,
+ * and colour is never the only signal: the detail line states the finding in
+ * words underneath.
+ */
+.critical .value {
+  color: var(--critical);
+}
+
+.good .value {
+  color: var(--good);
+}
+
+.unresolved .value {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+@media (max-width: 640px) {
+  .value {
+    font-size: 23px;
+  }
+}
