@@ -57,7 +57,16 @@ from pathlib import Path
 #:
 #: Raising the advisory as the project grows is expected and fine. Raising the
 #: *limit* should require an argument in the PR that does it.
-DASHBOARD_ADVISORY_BYTES = 2_000_000
+#:
+#: Raised from 2,000,000 by PR 14, which crossed it by 46 KB — the crossing
+#: SESSION_CONTEXT §13 predicted when it recorded 8,450 bytes of headroom and
+#: said the next PR of any size would spend it. PR 14's share is the
+#: documentation: six pages of prose held as data, plus their renderers and
+#: nav. **No dependency was added** — `package.json` is untouched, so this is
+#: content and components, which is the cheap kind of growth. The lever if the
+#: *limit* is ever genuinely approached is unchanged and is still the custom
+#: Plotly partial bundle, which is ~85% of the template.
+DASHBOARD_ADVISORY_BYTES = 2_100_000
 DASHBOARD_LIMIT_BYTES = 3_000_000
 
 #: Preferred source for the projection: the artefact the frontend job just

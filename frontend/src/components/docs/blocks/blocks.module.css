@@ -1,0 +1,92 @@
+/* Shared prose styling for documentation blocks. */
+
+/* Comfortable measure: the single biggest readability lever on a page of
+   prose. Capped in `ch` so it tracks the body font rather than the viewport. */
+.paragraph {
+  max-width: 70ch;
+  margin: 0 0 12px;
+  color: var(--ink2);
+  line-height: 1.6;
+}
+
+.heading {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 24px 0 10px;
+}
+
+.list {
+  max-width: 70ch;
+  margin: 0 0 12px;
+  padding-left: 22px;
+  color: var(--ink2);
+  line-height: 1.6;
+}
+
+.list li {
+  margin-bottom: 4px;
+}
+
+.definitions {
+  max-width: 70ch;
+  margin: 0 0 16px;
+}
+
+.definitions dt {
+  font-weight: 600;
+  color: var(--ink);
+  margin-top: 10px;
+}
+
+.definitions dd {
+  margin: 2px 0 0;
+  color: var(--ink2);
+  line-height: 1.6;
+}
+
+.calloutBlock {
+  margin: 0 0 12px;
+}
+
+.calloutTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+
+.tableWrap {
+  overflow-x: auto;
+  margin: 0 0 16px;
+}
+
+.table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+}
+
+.table caption {
+  text-align: left;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.table th,
+.table td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.table th {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.table td {
+  color: var(--ink2);
+}

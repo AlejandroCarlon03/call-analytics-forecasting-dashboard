@@ -12,6 +12,8 @@ import { DashboardHeader } from './components/shell/DashboardHeader';
 import { DashboardFooter } from './components/shell/DashboardFooter';
 import { SideNav, type NavTab } from './components/shell/SideNav';
 import { Callout, Section } from './components/primitives';
+import { DocsNav, DocsView } from './components/docs';
+import type { DocPageId } from './lib/docs/types';
 import { ImportPanel } from './components/import';
 import { ExportCenter } from './components/export/ExportCenter';
 import {
@@ -139,7 +141,14 @@ export function App() {
     [payload],
   );
 
-  const { selection, selectTarget, selectHorizon } = useHashSelection(domain);
+  const { selection, selectTarget, selectHorizon, route, navigate } = useHashSelection(domain);
+
+  const openDocs = useCallback(() => navigate({ view: 'docs', page: route.page }), [navigate, route.page]);
+  const exitDocs = useCallback(() => navigate({ view: 'report', page: route.page }), [navigate, route.page]);
+  const selectDocPage = useCallback(
+    (page: DocPageId) => navigate({ view: 'docs', page }),
+    [navigate],
+  );
 
   // Resolved from the DOM, not from `useTheme().mode` — see the doc comment on
   // `useChartPalette` for why the theme-context version is one render stale.
@@ -265,22 +274,54 @@ export function App() {
       ? undefined
       : (state.payload.targetMeta[selectedTarget]?.label ?? selectedTarget);
 
+  const header = (
+    <DashboardHeader
+      ingestion={state.payload.ingestion}
+      generatedAt={state.payload.generatedAt}
+      onOpenDocs={openDocs}
+    />
+  );
+  const footer = (
+    <DashboardFooter config={state.payload.config} generatedAt={state.payload.generatedAt} />
+  );
+
+  /*
+   * The documentation is a **view**, not a section, and it replaces the report
+   * inside the same shell rather than opening beside it.
+   *
+   * That is what keeps it feeling like part of the application: the header, the
+   * provenance line, the theme and the page frame are all still there, and only
+   * the rail and the content region change. It also means the report's sections
+   * are *unmounted* while the docs are open, which is the same choice PR 7 made
+   * for filtering and for the same reason — a Plotly chart that is present but
+   * unrendered gets measured at zero width, and one that is absent cannot be.
+   * Returning to the report remounts every chart and it measures itself fresh.
+   *
+   * The reader's model and horizon selection survives the trip: `applyDocsRoute`
+   * merges onto the existing fragment rather than rebuilding it, so the report
+   * they come back to is the report they left.
+   */
+  if (route.view === 'docs') {
+    return (
+      <AppShell
+        header={header}
+        nav={<DocsNav current={route.page} onSelect={selectDocPage} onExit={exitDocs} />}
+        footer={footer}
+      >
+        <DocsView page={route.page} onSelect={selectDocPage} onExit={exitDocs} />
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell
-      header={
-        <DashboardHeader
-          ingestion={state.payload.ingestion}
-          generatedAt={state.payload.generatedAt}
-        />
-      }
+      header={header}
       {...(tabs.length > 0
         ? {
             nav: <SideNav tabs={tabs} selected={selectedTarget} onSelect={selectTarget} />,
           }
         : {})}
-      footer={
-        <DashboardFooter config={state.payload.config} generatedAt={state.payload.generatedAt} />
-      }
+      footer={footer}
     >
       {/* Page order matches `build_dashboard()`. Every section renders a
           payload it may find empty, and returns null rather than an empty

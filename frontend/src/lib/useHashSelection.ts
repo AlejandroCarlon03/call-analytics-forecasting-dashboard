@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { formatHash, parseHash, type Selection, type SelectionDomain } from './selection';
+import { applyDocsRoute, parseDocsRoute, type DocsRoute } from './docs/route';
 
 /**
  * The location fragment, as a React store.
@@ -65,6 +66,18 @@ export interface HashSelection {
   selectTarget: (target: string | null) => void;
   /** Trim every forecast card to this many days. */
   selectHorizon: (horizon: number) => void;
+  /**
+   * Which view the same fragment is showing, and which doc page.
+   *
+   * Returned from here rather than from a second hook so the page keeps
+   * **one** `useSyncExternalStore` subscriber over `window.location` — the
+   * property §8 states and the reason no component reads `location` itself. A
+   * second hook would be a second subscription to the same value, and the two
+   * would render from it independently.
+   */
+  route: DocsRoute;
+  /** Open the documentation at a page, or return to the report. */
+  navigate: (route: DocsRoute) => void;
 }
 
 export function useHashSelection(domain: SelectionDomain): HashSelection {
@@ -78,9 +91,11 @@ export function useHashSelection(domain: SelectionDomain): HashSelection {
 
   const selection = useMemo(() => parseHash(hash, stableDomain), [hash, stableDomain]);
 
+  // `hash` is passed as the base so the docs' `view=`/`page=` keys survive a
+  // rail click, and vice versa below.
   const write = useCallback(
-    (next: Selection) => writeHash(formatHash(next, stableDomain)),
-    [stableDomain],
+    (next: Selection) => writeHash(formatHash(next, stableDomain, hash)),
+    [stableDomain, hash],
   );
 
   const selectTarget = useCallback(
@@ -93,5 +108,12 @@ export function useHashSelection(domain: SelectionDomain): HashSelection {
     [selection, write],
   );
 
-  return { selection, selectTarget, selectHorizon };
+  const route = useMemo(() => parseDocsRoute(hash), [hash]);
+
+  const navigate = useCallback(
+    (next: DocsRoute) => writeHash(applyDocsRoute(hash, next)),
+    [hash],
+  );
+
+  return { selection, selectTarget, selectHorizon, route, navigate };
 }

@@ -1,0 +1,176 @@
+/* The docs sidebar — same spacing scale and active-indicator technique as
+   SideNav.module.css, so the two rails are indistinguishable in behaviour. */
+
+.docsnav {
+  position: sticky;
+  top: 24px;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 900px) {
+  .docsnav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+}
+
+.title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 600;
+  margin: 0 0 10px 12px;
+}
+
+.tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tab {
+  appearance: none;
+  /* `block` is what lets the zero-height width sizer below participate in the
+     button's max-content width. */
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: var(--ink2);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.35;
+  cursor: pointer;
+  /* The longest nav label ('How a prediction is made') has to wrap cleanly at
+     full rail width rather than force the column wider or clip. */
+  overflow-wrap: break-word;
+
+  /* Same rule as SideNav: `background-color` and `background-image` are set
+     separately, never through the `background` shorthand, which would reset
+     the other one — a `:hover` written that way would silently erase the
+     bar. */
+  background-color: transparent;
+  background-image: linear-gradient(var(--series1), var(--series1));
+  background-repeat: no-repeat;
+  background-position: left center;
+  background-size: 3px 0%;
+
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    background-size var(--motion-base) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+
+/* The bold label's width, reserved on every tab — see SideNav.module.css for
+   the full rationale. Selection switches the label to 600 weight; rendering
+   it a second time at zero height, at that weight, makes the button's
+   max-content width the bold width in both states, so nothing shifts when
+   the horizontal strip below 900px sizes tabs to their content. */
+.tab::after {
+  content: attr(data-label);
+  display: block;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.tab:hover {
+  background-color: var(--surface);
+  color: var(--ink);
+}
+
+/* The active indicator, grown from `background-size` rather than a border —
+   see SideNav.module.css: a background paints no box and takes no space, so
+   the bar can grow from nothing to full height with the label pinned. */
+.tab[aria-current='page'] {
+  background-color: var(--surface);
+  background-size: 3px calc(100% - 12px);
+  border-color: var(--border);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.exit {
+  appearance: none;
+  margin-top: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink2);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+
+.exit:hover {
+  background-color: var(--surface);
+  color: var(--ink);
+}
+
+/* Off-screen rather than `display:none`, which a screen reader never enters
+   into the accessibility tree. Matches SideNav.module.css's `.liveRegion`. */
+.liveRegion {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 900px) {
+  .docsnav {
+    position: static;
+  }
+
+  .tabs {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 8px;
+    padding-bottom: 6px;
+    scroll-behavior: smooth;
+  }
+
+  .tab {
+    width: auto;
+    flex: 0 0 auto;
+    white-space: nowrap;
+    border-color: var(--border);
+    background-color: var(--surface);
+    background-position: bottom 0 left 8px;
+    background-size: 0% 3px;
+  }
+
+  .tab[aria-current='page'] {
+    background-size: calc(100% - 16px) 3px;
+  }
+
+  .exit {
+    flex: 0 0 auto;
+    width: auto;
+    margin-top: 0;
+    margin-left: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabs {
+    scroll-behavior: auto;
+  }
+}

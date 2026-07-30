@@ -1,0 +1,22 @@
+.pre {
+  overflow-x: auto;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--page);
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+  max-width: 100%;
+}
+
+.pre:focus-visible {
+  outline: 2px solid var(--series1);
+  outline-offset: 2px;
+}
+
+.pre code {
+  white-space: pre;
+}

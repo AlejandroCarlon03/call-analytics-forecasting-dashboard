@@ -26,6 +26,42 @@
   padding: 0 2px;
 }
 
+/* Theme toggle and docs link sit together at the top right. `baseline`
+   alignment on `.top` would drop them onto the title's baseline and leave the
+   two controls a pixel apart vertically; `center` inside their own flex row
+   keeps them on one line without changing the header's own alignment. */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Deliberately a link-weight control rather than a second toggle button: the
+   docs are a place you go, and the visual weight should say so without
+   competing with the theme toggle beside it. */
+.docsLink {
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition:
+    color var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease);
+}
+
+.docsLink:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+}
+
+/* No `:focus-visible` rule here on purpose — `global.css` already gives every
+   focusable element a `--series1` outline, and a local copy would be a second
+   place to keep the focus treatment in step. */
+
 @media (max-width: 640px) {
   .title {
     font-size: 21px;
