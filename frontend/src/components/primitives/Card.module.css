@@ -8,6 +8,38 @@
   margin-bottom: 16px;
   /* A wide table inside must not widen the card past its grid column. */
   min-width: 0;
+  animation: cardEnter var(--motion-base) var(--motion-ease) both;
+}
+
+/*
+ * The page transition.
+ *
+ * A card is the unit that appears and disappears when the rail filters — PR 7
+ * chose to unmount filtered cards rather than hide them, so the mount *is* the
+ * navigation event and no transition state, timer or wrapper component is
+ * needed to catch it. Cards that a selection does not touch (arrivals,
+ * scenarios) never remount and so never animate, which is the honest
+ * behaviour: motion here means "this changed", and animating a section that
+ * did not change would say the opposite.
+ *
+ * Only `opacity` and `transform` move. Animating height, margin or padding
+ * would reflow the column under a chart that has already measured itself, and
+ * `PlotlyChart` sizes from `clientWidth` — which a transform does not touch.
+ * The travel is `--motion-rise`, small enough that the card never appears to
+ * arrive from off-page, and `both` holds the opening frame so a card cannot
+ * flash at full opacity before the animation starts.
+ */
+@keyframes cardEnter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+  to {
+    opacity: 1;
+    /* `none`, not `translateY(0)`: a resolved `transform` would leave the card
+       a containing block for anything positioned inside it, permanently. */
+    transform: none;
+  }
 }
 
 .title {

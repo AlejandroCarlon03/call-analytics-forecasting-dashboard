@@ -129,6 +129,131 @@ describe('SideNav', () => {
     expect(screen.getByRole('button', { name: 'Handle time' })).toHaveFocus();
   });
 
+  /*
+   * Arrow keys were added in PR 11. They layer focus movement on top of the
+   * tab sequence rather than replacing it, so the Tab-order test above is the
+   * other half of this contract and both have to keep passing: a roving
+   * tabindex would satisfy these and break that one.
+   */
+  describe('arrow-key focus movement', () => {
+    it.each([
+      ['{ArrowDown}', 'All', 'Call volume'],
+      ['{ArrowRight}', 'All', 'Call volume'],
+      ['{ArrowUp}', 'Handle time', 'Call volume'],
+      ['{ArrowLeft}', 'Handle time', 'Call volume'],
+    ])('%s moves focus from %s to %s', async (key, from, to) => {
+      const user = userEvent.setup();
+      render(<SideNav tabs={TABS} selected={null} onSelect={vi.fn()} />);
+
+      screen.getByRole('button', { name: from }).focus();
+      await user.keyboard(key);
+
+      expect(screen.getByRole('button', { name: to })).toHaveFocus();
+    });
+
+    it('wraps at both ends', async () => {
+      const user = userEvent.setup();
+      render(<SideNav tabs={TABS} selected={null} onSelect={vi.fn()} />);
+
+      screen.getByRole('button', { name: 'Handle time' }).focus();
+      await user.keyboard('{ArrowDown}');
+      expect(screen.getByRole('button', { name: 'All' })).toHaveFocus();
+
+      await user.keyboard('{ArrowUp}');
+      expect(screen.getByRole('button', { name: 'Handle time' })).toHaveFocus();
+    });
+
+    it('Home and End jump to the first and last tab', async () => {
+      const user = userEvent.setup();
+      render(<SideNav tabs={TABS} selected={null} onSelect={vi.fn()} />);
+
+      screen.getByRole('button', { name: 'Call volume' }).focus();
+      await user.keyboard('{End}');
+      expect(screen.getByRole('button', { name: 'Handle time' })).toHaveFocus();
+
+      await user.keyboard('{Home}');
+      expect(screen.getByRole('button', { name: 'All' })).toHaveFocus();
+    });
+
+    it('moves focus without selecting — arrowing never calls onSelect', async () => {
+      const onSelect = vi.fn();
+      const user = userEvent.setup();
+      render(<SideNav tabs={TABS} selected={null} onSelect={onSelect} />);
+
+      screen.getByRole('button', { name: 'All' }).focus();
+      await user.keyboard('{ArrowDown}{ArrowDown}{End}{Home}');
+
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it('still commits with Enter after arrowing to a tab', async () => {
+      const onSelect = vi.fn();
+      const user = userEvent.setup();
+      render(<SideNav tabs={TABS} selected={null} onSelect={onSelect} />);
+
+      screen.getByRole('button', { name: 'All' }).focus();
+      await user.keyboard('{ArrowDown}{Enter}');
+
+      expect(onSelect).toHaveBeenCalledTimes(1);
+      expect(onSelect).toHaveBeenCalledWith('call_volume');
+    });
+
+    it('leaves keys it does not handle alone', async () => {
+      const user = userEvent.setup();
+      render(<SideNav tabs={TABS} selected={null} onSelect={vi.fn()} />);
+
+      const all = screen.getByRole('button', { name: 'All' });
+      all.focus();
+      await user.keyboard('{PageDown}x');
+
+      expect(all).toHaveFocus();
+    });
+  });
+
+  /*
+   * The selected tab renders at 600 weight, which is wider. In the horizontal
+   * strip below 900px the tabs size to their content, so without a reservation
+   * a selection would shove every tab after it sideways. jsdom does not lay
+   * out, so this asserts the mechanism — the sizer's text is present and
+   * correct on every tab — rather than the resulting width.
+   */
+  it('carries the bold-width reservation on every tab, selected or not', () => {
+    render(<SideNav tabs={TABS} selected="aht" onSelect={vi.fn()} />);
+
+    const buttons = screen.getAllByRole('button');
+    expect(buttons.map((button) => button.getAttribute('data-label'))).toEqual([
+      'All',
+      'Call volume',
+      'Handle time',
+    ]);
+  });
+
+  /*
+   * The active bar is drawn as the button's own background so that selecting a
+   * tab cannot move its label — see the CSS. jsdom resolves no CSS Modules
+   * styles, so nothing here can assert the bar; what it can assert is the shape
+   * that decision produced, which a bar rebuilt as a `::before` or a child
+   * `<span>` would break: the tab holds its label and nothing else.
+   */
+  it('keeps the accessible name to the label alone, with no extra markup in the tab', () => {
+    const { container } = render(<SideNav tabs={TABS} selected="aht" onSelect={vi.fn()} />);
+
+    expect(container.querySelectorAll('button *')).toHaveLength(0);
+    // Exact-name lookups: they fail if the sizer's text leaked into the name.
+    expect(screen.getByRole('button', { name: 'Handle time' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument();
+  });
+
+  it('does not use aria-current for anything but the selected tab', () => {
+    render(<SideNav tabs={TABS} selected="call_volume" onSelect={vi.fn()} />);
+
+    for (const button of screen.getAllByRole('button')) {
+      const current = button.getAttribute('aria-current');
+      expect(current === null || current === 'page').toBe(true);
+    }
+    expect(currentTabs().map((tab) => tab.textContent)).toEqual(['Call volume']);
+  });
+
   it('announces the selection through the live region, and updates it when the selection changes', () => {
     const { rerender } = render(<SideNav tabs={TABS} selected={null} onSelect={vi.fn()} />);
 

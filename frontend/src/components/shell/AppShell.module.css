@@ -2,6 +2,11 @@
   max-width: var(--maxw);
   margin: 0 auto;
   padding: 28px 20px 72px;
+  /* The skip link positions against this rather than the initial containing
+     block, so it comes down inside the report's column at every width. Does
+     not affect the rail: `position: sticky` resolves against the scrolling
+     ancestor, not the positioned one. */
+  position: relative;
 }
 
 /*
@@ -20,6 +25,47 @@
 
 .main {
   min-width: 0;
+}
+
+/* `main` is focusable so the skip link can land on it, but it is a region and
+   not a control — a focus ring around the entire report would read as an
+   error. The skip itself is the feedback. */
+.main:focus {
+  outline: none;
+}
+
+/*
+ * Visually hidden until focused, never hidden from assistive technology.
+ *
+ * The clip pattern rather than `display: none`, for the reason SideNav's
+ * `.liveRegion` gives: a display-none element is not in the accessibility tree
+ * and is not focusable, so a skip link built that way is a skip link that
+ * cannot be reached. It slides down into place rather than appearing, which is
+ * what makes it legible as arriving rather than as a rendering glitch.
+ */
+.skipLink {
+  position: absolute;
+  top: 0;
+  left: 12px;
+  z-index: 10;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  padding: 8px 14px;
+  font-size: 13.5px;
+  text-decoration: none;
+  transform: translateY(-100%);
+  transition: transform var(--motion-base) var(--motion-ease);
+}
+
+/* Both, not just `:focus-visible`. A skip link is only ever reached by keyboard
+   so the two agree in practice, but a link that stays hidden while holding
+   focus is unrecoverable, and `:focus` is the guarantee that cannot fail. */
+.skipLink:focus,
+.skipLink:focus-visible {
+  transform: translateY(0);
 }
 
 /* Below the two-column threshold the rail becomes a scrolling strip above the

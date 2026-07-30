@@ -36,7 +36,8 @@ committed template to its source. The migration is complete; §9 has the CI
 architecture and §5 the remaining product work.
 
 **Phase 2 is under way.** PR 10 — dashboard state consistency — is in §10, on
-`feature/dashboard-state-consistency`. Frontend only.
+`feature/dashboard-state-consistency`. PR 11 — navigation UX — is in §11, on
+`feature/navigation-ux`. Both frontend only.
 
 **Test suite health.** Two test files currently crash *during collection* on
 this machine for reasons unrelated to any recent change — see §4.
@@ -1337,3 +1338,210 @@ except the regenerated template, and the two stdlib-only gates that cover it
 (`sync_template.py --check`, `check_bundle_size.py`) both pass, so CI's
 `backend` and `dashboard` jobs are the first real run of the Python suite
 against this branch.
+
+---
+
+## 11. Phase 2 — Navigation UX
+
+**Added by PR 11** (branch `feature/navigation-ux`). Frontend only: no Python
+changed, no payload field added, `SCHEMA_VERSION` untouched. The one
+non-frontend file in the diff is `call_forecast/assets/dashboard_template.html`,
+the committed build artefact, re-synced per §6.
+
+Goal: make the report feel like an application rather than a page that happens
+to have buttons on it. No new dependency, no new state, no new component — the
+selection flow of PR 7 is untouched.
+
+### The navigation state flow, unchanged
+
+```
+location.hash
+  └─ useHashSelection (useSyncExternalStore, one subscriber, in App)
+       └─ selection { target, horizon }
+            ├─ SideNav — controlled, writes back through onSelect
+            └─ every target-scoped section, as props
+```
+
+PR 11 adds nothing to this diagram. That is the point: everything below is CSS,
+one keyboard handler and one link.
+
+### The transition is the mount, not a transition component
+
+**Filtering already unmounts a card** — PR 7 chose that over hiding, so a chart
+can never be measured at zero width. So the DOM event that means "the page
+changed" already exists, and `Card` and `Section` simply animate on mount:
+opacity plus a `--motion-rise` (4px) travel, over `--motion-base` (200ms) on
+`--motion-ease`. No transition wrapper, no timers, no exit animation, and no
+`key` on the content region that would remount untouched charts.
+
+The behaviour this buys is the honest one: cards that a selection *changes*
+animate, and the sections it does not touch — arrivals, scenarios — never
+remount and so never move. Motion here means "this changed", and animating a
+section that did not change would say the opposite.
+
+**Only `opacity` and `transform` animate, anywhere in this PR.** Height, margin
+and padding would reflow a column under a chart that has already measured
+itself, and `PlotlyChart` sizes from `clientWidth`, which a transform does not
+touch. `cardEnter` ends on `transform: none` rather than `translateY(0)` so the
+card does not remain a containing block for anything positioned inside it.
+
+### Motion tokens live in `global.css`, not `tokens.css`
+
+`--motion-fast` (120ms), `--motion-base` (200ms), `--motion-ease`
+(`cubic-bezier(0.2, 0, 0.2, 1)`) and `--motion-rise` (4px). **They must not go
+in `theme/tokens.css`**, which is generated from `call_forecast.dashboard.THEME`
+and guarded by `tests/test_tokens.py` — the Python renderer has no motion to
+describe, so putting durations there would mean inventing palette entries that
+no palette owns. Every transition added here reads them; a control that picks
+its own numbers is how a rail ends up settling after its content does.
+
+`prefers-reduced-motion` needed no per-rule opt-in: the blanket kill-switch in
+`global.css` predates this PR. It was extended to zero `animation-delay` and
+`transition-delay` and to pin `animation-iteration-count`. It collapses
+durations to `0.01ms` rather than to `none` deliberately — an animation with
+`animation-fill-mode: both` and no duration would never reach its `to` frame,
+leaving entering content stuck at the opacity it started from.
+
+### The active indicator, and the layout shift that was already there
+
+The rail marked its selection with `border-left: 3px` plus `padding-left: 10px`
+to absorb it. Correct, and it moved the label by a pixel on every selection —
+the jitter an animation is supposed to remove, not add to.
+
+***The bar is now `background-size` on the button itself.*** A background paints
+no box and takes no space, so it can grow from nothing to full height with the
+label pinned. `background-color` and `background-image` are set separately and
+the `background` shorthand is never used on `.tab`: the shorthand resets the
+other one, and a `:hover` written as `background: var(--surface)` would silently
+erase the bar. Below 900px the same bar becomes an underline that widens.
+
+A `::before` and a real child `<span>` were both built and both discarded — not
+because they fail, but because keeping the indicator on the button's own
+property leaves the tab's DOM at one text node, which is what makes its
+accessible name unambiguous.
+
+**The bold label's width is reserved on every tab** by a zero-height
+`::after { content: attr(data-label); font-weight: 600 }`. Selection bolds the
+label and bold text is wider; in the vertical rail the buttons are `width: 100%`
+so nothing moves, but in the horizontal strip below 900px they size to their
+content, and selecting one would shove every tab after it sideways.
+`visibility: hidden` keeps the duplicate out of the accessibility tree.
+
+Selection is still carried by weight, surface, border and bar together — never
+by hue alone (§6).
+
+### Keyboard: arrows added, tab order untouched
+
+Arrow Up/Down/Left/Right, Home and End move focus across the rail, wrapping at
+both ends. Both axes, because the rail is a column above 900px and a strip
+below it.
+
+***This is deliberately not the ARIA tabs pattern.*** There is no roving
+tabindex: every tab stays in the tab sequence, so Tab still walks the rail one
+button at a time and PR 7's Tab-order test keeps passing unmodified. A
+radiogroup was rejected in PR 7 and is rejected again here for the same reason —
+this is a `nav` of buttons, and a roving tabindex would both make Tab skip the
+whole rail in one press and imply that arrowing onto a tab selects it. **Arrow
+keys move focus; they never select.** Enter and Space still commit.
+
+The buttons are read off the DOM inside the handler rather than tracked in a ref
+array: they are the container's only element children and their DOM order *is*
+the order focus should follow, so a parallel array would be a second copy to
+keep in step with `tabs`, and the first time the two disagreed the rail would
+move focus to the wrong tab. `preventDefault()` is called only once a key is
+known to be handled, so Home and End still scroll the page when the rail is not
+what the reader is driving.
+
+### The skip link, and the trap in it
+
+`main` is now `id="report" tabIndex={-1}`, with a "Skip to report" link as the
+first thing in the tab order — a keyboard reader otherwise meets the theme
+toggle and every model tab before the first card, on every load. `tabIndex={-1}`
+is what makes the jump move *focus*; without it the browser scrolls to the
+fragment and leaves focus on the link, so the next Tab returns to the rail.
+
+***The default action would clear the reader's model selection.*** The fragment
+is not decoration on this page — it *is* the selection. Following `#report`
+replaces `#model=total_cost` with a fragment that parses to no target, so a
+reader who had filtered to one model and then skipped past the rail would arrive
+in an unfiltered report. `skipToReport` calls `preventDefault()` and focuses
+`main` directly; `focus()` does both jobs the default would have, including the
+scroll. `href` stays `#report` because that is what tells assistive technology
+and the status bar where the link goes. This is PR 7's `key=value` collision
+arriving from the other direction: there a bare anchor would have been *scrolled
+to*, here one would be *written*.
+
+The link is visually hidden by the clip-and-translate pattern, never
+`display: none`, which is not focusable and so cannot be a skip link at all.
+
+### Tests: 181 frontend, up from 163
+
+| File | Tests | What it pins |
+|---|---|---|
+| `shell/SideNav.test.tsx` | +11 | arrow/Home/End movement and wrapping, that arrowing never selects, that Enter still commits after arrowing, unhandled keys left alone, the bold-width reservation, one `aria-current` and nothing else, no extra markup in a tab |
+| `shell/AppShell.test.tsx` | 7 (new) | skip link first in tab order, `main` as a `-1` target, focus actually moving, and — the reason the file exists — an existing `#model=…&horizon=…` surviving the skip untouched |
+
+No existing test was modified or weakened; PR 7's Tab-order and keyboard-
+activation tests pass unchanged, which is the evidence that the tab sequence was
+added to rather than replaced. The new component file follows PR 7's convention
+(a `// @vitest-environment jsdom` docblock).
+
+### Verified against a live dev server
+
+On the 210-day sample fixture, driving the rail rather than editing the
+fragment. Through a full cycle All → volume → duration → cost → All:
+`aria-current`, the bar and the bold weight move together, exactly one tab
+carries each at every step, and the fragment tracks it. Figures 12 → 5 → 5 → 6 →
+12 and sections 9 → 8 → 8 → 9 → 9, matching PR 7 and PR 10.
+
+**Zero layout shift**: every tab's width, height and position is identical
+across the whole cycle, measured against the load-time geometry. Tab widths also
+hold in the ≤900px strip, which is the sizer working.
+
+Skip link: hidden at `translateY(-37.9px)`, first tab stop, moves focus to
+`#report`, and leaves `#model=total_cost` exactly as it found it. Arrows:
+All → volume, End → cost, wrap → All, Home → All, with the selection unchanged
+throughout. `cardEnter` / `sectionEnter` resolve at 0.2s, `both`, and the shared
+easing. No console output. The page never scrolls sideways — the rail strip and
+the wide tables overflow inside their own containers, as designed.
+
+***Two "regressions" found during this pass were instrumentation, not code, and
+the next person should not re-find them.*** The Browser pane does not composite
+frames when it is not displayed, so **every transitioned property freezes at its
+start value indefinitely** — `getComputedStyle` then reports the active tab's
+bar as unlit and the previous tab's as lit, permanently, while `matches()`
+confirms the selector applies and the rule is present in the CSSOM. It looks
+exactly like a style-invalidation bug and it is not one. Injecting
+`* { transition: none !important }` before reading resolves every state
+correctly; that is how the results above were measured, and it is the technique
+to reuse. Separately, reading `.js-plotly-plot` immediately after a navigation
+counts charts mid-mount and under-reports — 1 of 6 on one read, 6 on the next,
+with no code difference between them.
+
+**Unverified, unchanged from PRs 5–10 and still the embedded browser rather than
+the code.** Live resizing, and keyboard *activation* of a rail button (the pane
+delivers a trusted keydown but never performs the default activation).
+`resize_window` additionally does not take here — `innerWidth` stayed at 944
+after a request for 375 — so the ≤900px assertions above rest on the media query
+being active (`flex-direction: row`) rather than on a real 375px viewport.
+`prefers-reduced-motion` could not be emulated in this pane either; the
+kill-switch is asserted by rule, not by observation. All of these still want one
+pass in a real browser.
+
+### Verified locally, PR 11
+
+Node 24.18.0 · npm 11.16.0.
+
+- `npm run typecheck` — clean.
+- `npm test` — **181 passed** (163 before this PR).
+- `npm run build` → `dist/index.html` at **1,678,440 bytes** (1,675,809 before).
+- `scripts/sync_template.py` re-run and `--check` clean; `gen_tokens.py --check`
+  clean (no `THEME` change — motion tokens live in `global.css`, see above).
+- `scripts/check_bundle_size.py` — projected **1,953,714 of 2,000,000**;
+  headroom 46,286 bytes, down from 48,917.
+
+**`pytest` was not run: this checkout still has no Python environment** — no
+`pandas`, no `pytest`, no venv under `~/.venvs`, unchanged from PR 10. Nothing
+under `call_forecast/` changed except the regenerated template, and the two
+stdlib-only gates that cover it both pass, so CI's `backend` and `dashboard`
+jobs are the first real run of the Python suite against this branch.

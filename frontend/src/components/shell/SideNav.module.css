@@ -20,10 +20,11 @@
 
 .tab {
   appearance: none;
+  /* `block` is what lets the zero-height width sizer below participate in the
+     button's max-content width. */
   display: block;
   width: 100%;
   text-align: left;
-  background: transparent;
   color: var(--ink2);
   border: 1px solid transparent;
   border-radius: 8px;
@@ -32,20 +33,78 @@
   font-size: 13.5px;
   line-height: 1.35;
   cursor: pointer;
+
+  /*
+   * The active indicator, drawn as this button's own background rather than as
+   * a child box. See the block below for why. `background-color` and
+   * `background-image` are set separately, never through the `background`
+   * shorthand — the shorthand resets the other one, and a `:hover` written as
+   * `background: var(--surface)` would silently erase the bar.
+   */
+  background-color: transparent;
+  background-image: linear-gradient(var(--series1), var(--series1));
+  background-repeat: no-repeat;
+  background-position: left center;
+  background-size: 3px 0%;
+
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    background-size var(--motion-base) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+
+/*
+ * The bold label's width, reserved on every tab.
+ *
+ * Selection switches the label to 600 weight, and bold text is wider. In the
+ * vertical rail the buttons are `width: 100%` so nothing moves, but in the
+ * horizontal strip below 900px they are `flex: 0 0 auto` and size to their
+ * content — so selecting a tab would widen it and shove every tab after it
+ * sideways, which is the exact layout shift the animation is meant to replace.
+ *
+ * Rendering the label a second time at the weight it *might* take, at zero
+ * height, makes the button's max-content width the bold width in both states.
+ * `visibility: hidden` keeps the duplicate out of the accessibility tree, so
+ * the accessible name stays the single visible label.
+ */
+.tab::after {
+  content: attr(data-label);
+  display: block;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  font-weight: 600;
+  pointer-events: none;
 }
 
 .tab:hover {
-  background: var(--surface);
+  background-color: var(--surface);
   color: var(--ink);
 }
 
-/* Selection is carried by the weight, the surface and the left bar together —
-   never by hue alone. */
+/*
+ * The active indicator.
+ *
+ * Selection is carried by the weight, the surface, the border and the left bar
+ * together — never by hue alone.
+ *
+ * **The bar grows out of `background-size` rather than a border.** What this
+ * rail shipped before was `border-left: 3px` with `padding-left: 10px` to
+ * absorb it: correct, but it re-runs layout on the button and moves its label
+ * by a pixel on every selection change. A background paints no box and takes
+ * no space, so the bar can grow from nothing to full height with the label
+ * pinned — verified pixel-identical across a full cycle of tab clicks.
+ *
+ * `calc(100% - 12px)` insets it 6px top and bottom, clear of the border radius.
+ * Keeping it on the button's own property, rather than on a `::before` or a
+ * child `<span>`, also keeps the tab's DOM to one text node, which is what
+ * makes its accessible name unambiguous.
+ */
 .tab[aria-current='page'] {
-  background: var(--surface);
+  background-color: var(--surface);
+  background-size: 3px calc(100% - 12px);
   border-color: var(--border);
-  border-left: 3px solid var(--series1);
-  padding-left: 10px;
   color: var(--ink);
   font-weight: 600;
 }
@@ -75,6 +134,9 @@
     overflow-x: auto;
     gap: 8px;
     padding-bottom: 6px;
+    /* Arrow keys and focus both move between tabs here; a focused tab scrolled
+       half out of the strip should settle rather than jump. */
+    scroll-behavior: smooth;
   }
 
   .tab {
@@ -82,10 +144,20 @@
     flex: 0 0 auto;
     white-space: nowrap;
     border-color: var(--border);
-    background: var(--surface);
+    background-color: var(--surface);
+    /* Same bar, laid along the axis the tabs now run in: an underline that
+       widens rather than a left rule that grows. */
+    background-position: bottom 0 left 8px;
+    background-size: 0% 3px;
   }
 
   .tab[aria-current='page'] {
-    border-left-width: 3px;
+    background-size: calc(100% - 16px) 3px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabs {
+    scroll-behavior: auto;
   }
 }

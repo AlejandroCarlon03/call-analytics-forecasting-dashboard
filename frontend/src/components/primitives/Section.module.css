@@ -2,6 +2,21 @@
 
 .section {
   margin: 36px 0;
+  /* Same curve and distance as `Card`, so a section that arrives whole — the
+     monthly cost section under a `total_cost` selection, say — moves as one
+     object with the card inside it instead of the heading landing first. */
+  animation: sectionEnter var(--motion-base) var(--motion-ease) both;
+}
+
+@keyframes sectionEnter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .section:first-child {
