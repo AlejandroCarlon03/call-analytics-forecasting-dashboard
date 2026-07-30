@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { formatHash, parseHash, type Selection, type SelectionDomain } from './selection';
 import { applyDocsRoute, parseDocsRoute, type DocsRoute } from './docs/route';
+import { isDeepLink } from './entry';
 
 /**
  * The location fragment, as a React store.
@@ -78,6 +79,15 @@ export interface HashSelection {
   route: DocsRoute;
   /** Open the documentation at a page, or return to the report. */
   navigate: (route: DocsRoute) => void;
+  /**
+   * Whether the fragment names a view the reader asked for.
+   *
+   * Read from the same snapshot as everything else here, for the same reason
+   * `route` is: a second subscriber to `window.location` would be a second
+   * component rendering from the browser's value independently. `App` uses it
+   * to let a shared link past the landing page — see `lib/entry.ts`.
+   */
+  deepLink: boolean;
 }
 
 export function useHashSelection(domain: SelectionDomain): HashSelection {
@@ -115,5 +125,7 @@ export function useHashSelection(domain: SelectionDomain): HashSelection {
     [hash],
   );
 
-  return { selection, selectTarget, selectHorizon, route, navigate };
+  const deepLink = useMemo(() => isDeepLink(hash), [hash]);
+
+  return { selection, selectTarget, selectHorizon, route, navigate, deepLink };
 }

@@ -223,6 +223,14 @@ async function renderApp() {
       <App />
     </ThemeProvider>,
   );
+  // The application now opens on the landing page, so every test below that
+  // wants the report enters through it first — the same click a reader makes.
+  // A test with a fragment already set (a deep link) is past the landing page
+  // on load and finds no such button, which is the behaviour those tests are
+  // implicitly relying on.
+  if (window.location.hash === '') {
+    await userEvent.click(await screen.findByRole('button', { name: 'Open dashboard' }));
+  }
   // Wait for the async loadPayload() to resolve and the ready view to mount.
   await screen.findByRole('button', { name: 'fire import' });
 }
@@ -631,5 +639,147 @@ describe('App import wiring', () => {
       expect(await screen.findByText(/anomalies and alerts/i)).toBeInTheDocument();
       expect(screen.queryByText(/produced by the Python pipeline/i)).not.toBeInTheDocument();
     });
+  });
+});
+
+/**
+ * The landing experience.
+ *
+ * The application opens on a welcome screen and the report mounts only once
+ * the reader chooses to enter — except for a link that already names a view,
+ * which must arrive where it points. Nothing here may write the fragment.
+ */
+describe('App landing experience', () => {
+  /** Render without entering, unlike the shared `renderApp()` helper above. */
+  async function renderRaw() {
+    const { App } = await import('./App');
+    const { ThemeProvider } = await import('./theme/ThemeProvider');
+    render(
+      <ThemeProvider>
+        <App />
+      </ThemeProvider>,
+    );
+  }
+
+  it('opens on the landing page rather than the dashboard', async () => {
+    loadResult = { payload: fullPayload(), source: 'fixture' };
+    await renderRaw();
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Call Analytics Forecast' }))
+      .toBeInTheDocument();
+    // The report's own furniture is absent, not merely hidden.
+    expect(screen.queryByRole('button', { name: 'fire import' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/at a glance/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Models' })).not.toBeInTheDocument();
+  });
+
+  it('renders the dashboard once the reader enters', async () => {
+    loadResult = { payload: fullPayload(), source: 'fixture' };
+    await renderRaw();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Open dashboard' }));
+
+    expect(await screen.findByRole('button', { name: 'fire import' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Models' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Import Dashboard' })).not.toBeInTheDocument();
+  });
+
+  it('enters and takes the reader to the import panel on the primary action', async () => {
+    loadResult = { payload: fullPayload(), source: 'fixture' };
+    await renderRaw();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Import Dashboard' }));
+
+    const section = document.getElementById('data-source');
+    expect(section).not.toBeNull();
+    // Focus lands on the panel's first control, not at the top of the page.
+    expect(section?.querySelector('button')).toHaveFocus();
+  });
+
+  it('never writes to the fragment when entering', async () => {
+    loadResult = { payload: fullPayload(), source: 'fixture' };
+    await renderRaw();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Open dashboard' }));
+
+    expect(window.location.hash).toBe('');
+  });
+
+  it('lets a selection deep link past the landing page', async () => {
+    window.location.hash = '#model=call_volume';
+    loadResult = { payload: fullPayload(), source: 'fixture' };
+    await renderRaw();
+
+    expect(await screen.findByRole('button', { name: 'fire import' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open dashboard' })).not.toBeInTheDocument();
+    expect(window.location.hash).toBe('#model=call_volume');
+  });
+
+  it('lets a documentation deep link past the landing page', async () => {
+    window.location.hash = '#view=docs';
+    loadResult = { payload: fullPayload(), source: 'fixture' };
+    await renderRaw();
+
+    expect(await screen.findByRole('button', { name: /back to report/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open dashboard' })).not.toBeInTheDocument();
+  });
+
+  it('opening the docs from the landing page lands on the report when leaving them', async () => {
+    loadResult = { payload: fullPayload(), source: 'fixture' };
+    await renderRaw();
+
+    await userEvent.click(await screen.findByRole('button', { name: /Documentation & about/i }));
+    expect(window.location.hash).toBe('#view=docs');
+
+    await userEvent.click(await screen.findByRole('button', { name: /back to report/i }));
+
+    // Not back to the welcome screen: the reader has already answered the
+    // question it asks, and the control they pressed says "report".
+    expect(await screen.findByRole('button', { name: 'fire import' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('');
+  });
+});
+
+/**
+ * The landing gate is one-directional.
+ *
+ * `deepLink` describes the *current* fragment and the fragment is cleared in
+ * ordinary use — "All" on the rail drops `model=`, leaving the docs drops
+ * `view=`. A reader who has entered must never be ejected by either.
+ */
+describe('App landing gate is one-directional', () => {
+  async function renderRaw() {
+    const { App } = await import('./App');
+    const { ThemeProvider } = await import('./theme/ThemeProvider');
+    render(
+      <ThemeProvider>
+        <App />
+      </ThemeProvider>,
+    );
+  }
+
+  it('keeps a deep-linked reader in the report when they clear the selection', async () => {
+    window.location.hash = '#model=call_volume';
+    loadResult = { payload: twoTargetPayload(), source: 'fixture' };
+    await renderRaw();
+
+    await screen.findByRole('button', { name: 'fire import' });
+    await userEvent.click(screen.getByRole('button', { name: 'All' }));
+
+    // The fragment is empty again — and the reader is still in the report.
+    await waitFor(() => expect(window.location.hash).toBe(''));
+    expect(screen.getByRole('button', { name: 'fire import' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open dashboard' })).not.toBeInTheDocument();
+  });
+
+  it('keeps a deep-linked docs reader in the report when they leave the docs', async () => {
+    window.location.hash = '#view=docs';
+    loadResult = { payload: fullPayload(), source: 'fixture' };
+    await renderRaw();
+
+    await userEvent.click(await screen.findByRole('button', { name: /back to report/i }));
+
+    await waitFor(() => expect(window.location.hash).toBe(''));
+    expect(await screen.findByRole('button', { name: 'fire import' })).toBeInTheDocument();
   });
 });

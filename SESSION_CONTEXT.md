@@ -43,6 +43,12 @@ architecture and §5 the remaining product work.
 `feature/about-documentation`. PR 15 — External Integrations — is in §15, on
 `feature/external-integrations`. All six are frontend only.
 
+**Phase 3 has started.** PR 16 — the landing experience — is in §16, on
+`feature/landing-experience`, and it changes what the application does on
+load: **the dashboard no longer renders until the reader enters it.** A link
+carrying a fragment (`#model=…`, `#view=docs`) still arrives where it points.
+Read §16 before touching `App.tsx`'s render branches or `lib/entry.ts`.
+
 **The dashboard now has two views.** The report, and six pages of integrated
 documentation reached from the header's "Docs" control. Both live in the same
 URL fragment; §14's routing subsection is the thing to read before touching
@@ -337,7 +343,7 @@ not in the repo. Drop exports into `data/` to use them.
 
 ## 6. Development Guidelines
 
-**§16 is the standing instruction on when to run the test suites.** Read it
+**§17 is the standing instruction on when to run the test suites.** Read it
 before running anything: the short version is that the branch is assumed green,
 the full Python suite is a pre-commit gate rather than a warm-up, and a
 frontend-only change does not run it at all.
@@ -2394,7 +2400,204 @@ Node 24.18.0 · npm 11.18.0 · Python 3.12.10.
 
 ---
 
-## 16. Testing Workflow Instructions
+## 16. Phase 3 — Landing Experience
+
+**Added by PR 16** (branch `feature/landing-experience`). Frontend only: no
+Python source changed, no payload field added, `SCHEMA_VERSION` untouched. The
+one non-frontend file in the diff is
+`call_forecast/assets/dashboard_template.html`, the committed build artefact,
+re-synced per §6.
+
+Goal: the application opens on a welcome screen, and the dashboard renders only
+once the reader chooses to enter.
+
+### The question that shaped the PR
+
+**Before this, the first thing a new reader saw was a full report describing
+data they had never supplied.** `loadPayload()` falls through to the committed
+sample fixture in development and in any build without an inlined payload, so
+the application opened onto twelve charts of synthetic 210-day data with
+nothing on the page saying so. That is the §10 failure — a page asserting
+agreement it has not got — arriving *before* the dashboard rather than inside
+it. The landing page renders no chart, no table, no tile and no payload number.
+
+### The gate is component state, and deliberately not a fragment key
+
+```
+location.hash === ''            landing page
+location.hash === '#model=…'    the report, filtered, as before
+location.hash === '#view=docs'  the documentation, as before
+```
+
+`App` holds one boolean, `entered`. ***It is not a URL key, and that is the
+decision most likely to be second-guessed.*** Two writers already share this
+fragment (`selection.ts` and `docs/route.ts`, each rewriting only the keys it
+owns — §14), and a third meaning "has this reader entered yet" would put
+session-shaped state into a URL that gets emailed around: the recipient of
+`#entered=1` would skip a welcome screen they had never seen.
+
+**`lib/entry.ts` is the bypass, and it is the whole interface between the URL
+and the gate.** One pure function, `isDeepLink(hash)`, true when the fragment
+carries any of `model`, `horizon`, `view` or `page`. A link someone was sent
+names a view, and putting a welcome screen in front of it would break exactly
+the linkability PRs 7 and 14 built the fragment for. It is returned from
+`useHashSelection` rather than read from a second hook, so **there is still
+exactly one `useSyncExternalStore` subscriber** and no component reads
+`location`. Nothing on the landing page writes a fragment — asserted in both
+the component and the `App` tests.
+
+A key added to `selection.ts` or `docs/route.ts` and forgotten in `VIEW_KEYS`
+costs a deep link its bypass — the reader sees the welcome screen once and
+everything still works — rather than corrupting any state. That is why the
+union is one list here instead of two exported private constants.
+
+### What the page offers
+
+| Control | Kind | What it does |
+|---|---|---|
+| Import Dashboard | `<button>` | enters, then focuses the existing `ImportPanel` |
+| Open dashboard | `<button>` | enters |
+| Documentation & about | `<button>` | opens the in-app docs (§14) — real, not a placeholder |
+| GitHub | `<a target="_blank">` | `config/externalLinks.tsx`, the only place the URL lives (§15) |
+| Recent imports | — | an honest empty state; PR 18 fills it |
+
+The button/anchor split is §15's argument reused: three of these change what
+this page shows, and one genuinely leaves it. `rel="noopener noreferrer"` for
+the same two reasons.
+
+***"Import Dashboard" is not a fragment anchor.*** `Section` gained an optional
+`id` and `App` scrolls to `#data-source` and focuses the panel's first control
+in an effect — a bare `#data-source` in the fragment would overwrite the
+selection, which is §11's skip-link trap arriving in a third place. The scroll
+call is optional (`scrollIntoView?.()`) because jsdom implements no scrolling
+and a missing scroll must not cost the reader the focus move.
+
+### The gate is one-directional, and it had to be made so
+
+***A bug found in review, not by a test.*** `deepLink` is a fact about the
+*current* fragment, and the fragment is cleared in ordinary use: selecting
+"All" on the rail drops `model=`, and leaving the docs drops `view=`. Both can
+empty it completely. A reader who arrived on `#model=total_cost` and then
+pressed "All" was therefore thrown back to the welcome screen mid-session — the
+fragment had stopped naming a view, but they had plainly already entered.
+
+An effect latches `entered` the moment a deep link is seen. Nothing in `App`
+ever sets it back to false, so there is one direction of travel and no path
+that can eject a reader from the application. Reproduced and confirmed fixed in
+a real browser (`#model=total_cost` → "All" → fragment `''`, still in the
+report, 12 figures) and pinned by two tests, one for each way the fragment
+empties.
+
+**Opening the docs from the landing page also marks the reader as entered**, so
+the docs' "Back to report" lands on the report it names rather than bouncing
+them to the welcome screen they have already answered.
+
+**Recent imports is a placeholder and says so.** Nothing records an import
+history, so the section states that instead of listing plausible-looking files
+nobody imported — the same reasoning §12 applied to the anomalies section.
+
+### Two contrast fixes made during verification, not after
+
+`--series1` was the obvious accent and it is wrong for text. Measured in the
+pane: white on `--series1` is **4.46:1** light and **3.64:1** dark, both under
+AA at this size. The primary button uses `--seq-4` instead — **5.39:1 in both
+palettes**, because the sequential ramp is the same seven steps in each, so the
+button needs no theme-aware rule. The hero eyebrow moved from `--series1` to
+`--ink2` (7.53:1 light / 10.85:1 dark). The series hues are tuned to sit in a
+plot area against a line, not to carry 13px text on the page background.
+
+`#ffffff` on the primary button is the one colour literal, and it is
+deliberate: `--ink` inverts with the theme, which on a blue button that does
+not invert would be dark text on blue in the dark palette.
+
+### Tests: 432 frontend, up from 406
+
+| File | Tests | What it pins |
+|---|---|---|
+| `lib/entry.test.ts` | 6 | the bypass — nothing, a bare `#`, both writers' keys, and `#report` (the skip link's href) *not* counting as a view |
+| `components/landing/LandingPage.test.tsx` | 11 | every action and its kind, the repository link's `href`/`target`/`rel` read from the shared config, the empty state, heading hierarchy, full tab order, Enter/Space on the primary action, no chart/table/rail, and no fragment written |
+| `App.test.tsx` | +9 | opens on the landing page, enters, the import action's focus move, both deep-link bypasses, the docs round trip, that entering writes no fragment, and — the review bug — that clearing the fragment from inside the report does not eject the reader |
+
+**One existing test file was touched and no assertion in it changed.**
+`App.test.tsx`'s shared `renderApp()` helper now clicks "Open dashboard" when
+the fragment is empty — the same click a reader makes. Tests that set a
+fragment first are deep links and skip it. This is the PR 8 shape: a deliberate
+change to what the application does on load has to be visible in the test that
+loads it.
+
+### Verified against a live dev server
+
+Port 5178, on the 210-day sample fixture. A fourth launch configuration was
+added for it (§13's machine hazard — the Desktop clone is stale and another
+session held 5177).
+
+```
+(no fragment)                    landing · 0 figures · 0 tables · no rail
+  "Open dashboard"               report  · 12 figures · 17 tables · both navs · hash still ''
+#model=total_cost&horizon=30     report directly · 6 figures · one aria-current · landing skipped
+  reload with no fragment        landing again
+  "Documentation & about"        docs · #view=docs · 0 figures
+  "Back to report"               report · 12 figures · hash ''
+  "Import Dashboard"             report, focus on the import panel's "Choose file"
+```
+
+Responsive: **375px** — no page overflow (375/375), capability cards stacked,
+both hero buttons full width, title clamped to 32px. **768px** — no overflow
+(753/753), cards in two rows, title 42px. **1280px** — no overflow (1265/1265).
+Theme toggle restyles the whole page from tokens in both directions. Tab order
+from the top: theme toggle → Import Dashboard → Open dashboard, each with the
+2px focus ring. No console output beyond Vite and React DevTools notices.
+
+***§11's instrumentation trap applies here too*** and the contrast numbers
+above were read after injecting `* { transition: none !important }`. Note also
+that `ThemeProvider` writes `data-theme` in an effect, so a computed-style read
+in the same tick as the toggle click reports the *previous* theme — the same
+one-render-stale fact `useChartPalette` exists for, arriving in a measurement
+rather than in a render.
+
+**Unverified, unchanged from PRs 5–15 and still the pane rather than the
+code.** Keyboard *activation*: the pane delivers a trusted Return to the
+focused "Open dashboard" button and performs no default activation, so nothing
+happened — the behaviour is jsdom-tested in both files above and is the HTML
+spec's for a real `<button>`. A screenshot could not be taken: the pane must be
+displayed to composite, and it was not. Live resizing likewise.
+
+### Verified locally, PR 16
+
+Node 24.18.0 · Python 3.12.10.
+
+- `npm run typecheck` — clean.
+- `npm test` — **432 passed** (406 before this PR).
+- `npm run build` → `dist/index.html` at **1,784,183 bytes** (1,775,038 before);
+  +9,145 for the landing component, its stylesheet, `lib/entry.ts` and the
+  wiring. No dependency added — `package.json` and `package-lock.json` are
+  untouched.
+- `scripts/sync_template.py` re-run and `--check` clean; `gen_tokens.py --check`
+  clean (no `THEME` change — existing tokens only).
+- `scripts/check_bundle_size.py` — **2,059,457 of 2,100,000**; headroom 40,543,
+  down from 49,688. Both advisories and both limits unchanged from §14.
+- `pytest tests/ -q` — **265 passed**, exit 0, in `~/.venvs/callforecast`.
+  `--doctest-modules` — 18 (17 passed, 1 skipped). §4's collection crash did
+  not reproduce. Nothing under `call_forecast/` changed except the regenerated
+  template, so this is confirmation rather than coverage of new Python.
+
+### Remaining Phase 3 work
+
+- **PR 18 — import history.** `Recent imports` is the placeholder it fills: a
+  heading, a region and an empty state, with no storage, no list and no
+  persistence written yet. Whatever records the history will also need to
+  decide where it lives — nothing in this codebase persists anything but the
+  theme preference (`localStorage`) and the last export format
+  (`sessionStorage`), and a `file://` page has an opaque origin where even
+  reading storage can throw (§13).
+- **The human-readable dashboard summary** is a separate piece of work and was
+  deliberately not built here.
+- **Still owed, and now five PRs old:** one pass in a real browser for keyboard
+  activation and live resizing.
+
+---
+
+## 17. Testing Workflow Instructions
 
 **Standing instruction for Claude Code sessions on this repository.** It is
 about *when* to run the suites, not what they cover — §4 has the suite's health
