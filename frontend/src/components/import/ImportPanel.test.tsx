@@ -13,7 +13,7 @@ import userEvent from '@testing-library/user-event';
 import { ImportPanel } from './ImportPanel';
 import { readImportFile } from '../../lib/import';
 import type { DashboardPayload } from '../../data/types';
-import type { ImportPreview, ImportResult } from '../../lib/import/types';
+import type { ImportPreview, ImportProgress, ImportResult } from '../../lib/import/types';
 
 vi.mock('../../lib/import', () => ({ readImportFile: vi.fn() }));
 
@@ -177,5 +177,59 @@ describe('ImportPanel', () => {
 
     resolveRead(okResult());
     await waitFor(() => expect(screen.getByRole('button', { name: 'Import' })).toBeInTheDocument());
+  });
+
+  it('calls readImportFile with a progress callback and shows the reported stage label', async () => {
+    let resolveRead: (value: ImportResult) => void = () => {};
+    mockedRead.mockImplementation(
+      ((_file: File, onProgress?: ImportProgress) =>
+        new Promise<ImportResult>((resolve) => {
+          onProgress?.('parsing');
+          resolveRead = resolve;
+        })) as typeof readImportFile,
+    );
+    const user = userEvent.setup();
+    render(<ImportPanel onImport={vi.fn()} activeSourceLabel="sample dataset" />);
+
+    const input = screen.getByLabelText(/choose a csv or json file/i) as HTMLInputElement;
+    await user.upload(input, makeFile());
+
+    await waitFor(() => expect(screen.getAllByText(/parsing rows/i).length).toBeGreaterThan(0));
+    resolveRead(okResult());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Import' })).toBeInTheDocument());
+  });
+
+  it('shows a success state naming the file, rows kept and date span, and announces it', async () => {
+    mockedRead.mockResolvedValue(okResult());
+    const user = userEvent.setup();
+    render(<ImportPanel onImport={vi.fn()} activeSourceLabel="sample dataset" />);
+
+    const input = screen.getByLabelText(/choose a csv or json file/i) as HTMLInputElement;
+    await user.upload(input, makeFile());
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Import' })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'Import' }));
+
+    const confirmations = screen.getAllByText(/my_export\.csv/);
+    expect(confirmations.length).toBeGreaterThan(0);
+    const rowsKeptMatches = screen.getAllByText(/205 rows kept/);
+    expect(rowsKeptMatches.length).toBeGreaterThan(0);
+    const spanMatches = screen.getAllByText(/2026-01-01 to 2026-07-01/);
+    expect(spanMatches.length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /import another file/i })).toBeInTheDocument();
+  });
+
+  it('lists every error message when there are several, with guidance text', async () => {
+    mockedRead.mockResolvedValue(errorResult());
+    const user = userEvent.setup();
+    render(<ImportPanel onImport={vi.fn()} activeSourceLabel="sample dataset" />);
+
+    const input = screen.getByLabelText(/choose a csv or json file/i) as HTMLInputElement;
+    await user.upload(input, makeFile());
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('No timestamp column found.');
+    expect(alert).toHaveTextContent('Cost was not numeric.');
+    expect(alert).toHaveTextContent(/try again|different one/i);
   });
 });

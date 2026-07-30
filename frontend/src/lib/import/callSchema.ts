@@ -131,6 +131,13 @@ export function parseDurationToSeconds(val: string | null | undefined): number {
 
   if (text.includes(':')) {
     const parts = text.split(':');
+    /*
+     * An empty component is unparseable, not zero. `Number('')` is `0` in JS
+     * where Python's `float('')` raises, so before PR 19 a truncated cell like
+     * `"2:"` came back as 120 seconds rather than NaN — a silently invented
+     * two-minute call. Rejecting blanks explicitly is what restores parity.
+     */
+    if (parts.some((p) => p.trim() === '')) return NaN;
     const nums = parts.map((p) => Number(p.trim()));
     if (nums.some((x) => Number.isNaN(x))) return NaN;
     if (parts.length === 2) return nums[0]! * 60 + nums[1]!; // MM:SS

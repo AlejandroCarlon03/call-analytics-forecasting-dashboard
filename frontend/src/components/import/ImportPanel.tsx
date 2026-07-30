@@ -2,8 +2,21 @@ import { useCallback, useId, useRef, useState } from 'react';
 import type { ChangeEvent, DragEvent, KeyboardEvent } from 'react';
 import type { DashboardPayload } from '../../data/types';
 import { readImportFile } from '../../lib/import';
-import type { ImportPreview, ImportProblem, ImportResult } from '../../lib/import/types';
-import { ACCEPTED_EXTENSIONS } from '../../lib/import/types';
+import type { ImportPreview, ImportProblem, ImportProgress, ImportResult, ImportStage } from '../../lib/import/types';
+import { ACCEPTED_EXTENSIONS, IMPORT_STAGE_LABELS } from '../../lib/import/types';
+
+/**
+ * `readImportFile` is contracted (`lib/import/types.ts`) to take an optional
+ * progress callback as its second argument, landing alongside `.xlsx`
+ * support from a parallel agent. Called through this typed wrapper so the
+ * panel builds against the frozen signature even while the current
+ * implementation still declares one parameter; drop the cast once the real
+ * second parameter lands.
+ */
+const readImportFileWithProgress = readImportFile as (
+  file: File,
+  onProgress?: ImportProgress,
+) => Promise<ImportResult>;
 import { Card, Callout, DataTable } from '../primitives';
 import type { Column } from '../primitives';
 import { deriveColumns } from '../../lib/columns';
@@ -23,6 +36,14 @@ interface StagedResult {
   preview: ImportPreview;
 }
 
+/** What the success state confirms, captured before `staged` is cleared. */
+interface ImportedSummary {
+  fileName: string;
+  rowsKept: number;
+  dateMin: string | null;
+  dateMax: string | null;
+}
+
 const ACCEPT_ATTR = ACCEPTED_EXTENSIONS.join(',');
 
 function problemLocation(problem: ImportProblem): string | null {
@@ -32,9 +53,15 @@ function problemLocation(problem: ImportProblem): string | null {
   return null;
 }
 
+/** The confirmation sentence for the success state, and its live-region echo. */
+function importedMessage(summary: ImportedSummary): string {
+  const span = summary.dateMin && summary.dateMax ? ` covering ${summary.dateMin} to ${summary.dateMax}` : '';
+  return `Imported ${summary.fileName}: ${summary.rowsKept} row${summary.rowsKept === 1 ? '' : 's'} kept${span}.`;
+}
+
 /**
- * Reads a CSV or a pipeline JSON export and, once the reader confirms the
- * preview, hands the resulting payload back to `App`.
+ * Reads a CSV, a pipeline JSON export, or a workbook and, once the reader
+ * confirms the preview, hands the resulting payload back to `App`.
  *
  * Nothing is applied until "Import" is pressed — the preview stage exists so
  * a swap of the dashboard's one source of truth is never a surprise.
@@ -43,7 +70,8 @@ export function ImportPanel({ onImport, activeSourceLabel }: ImportPanelProps) {
   const [stage, setStage] = useState<Stage>('idle');
   const [errors, setErrors] = useState<ImportProblem[]>([]);
   const [staged, setStaged] = useState<StagedResult | null>(null);
-  const [importedLabel, setImportedLabel] = useState<string | null>(null);
+  const [importedSummary, setImportedSummary] = useState<ImportedSummary | null>(null);
+  const [progressStage, setProgressStage] = useState<ImportStage | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const dragCounter = useRef(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -53,11 +81,12 @@ export function ImportPanel({ onImport, activeSourceLabel }: ImportPanelProps) {
 
   const handleFile = useCallback(async (file: File) => {
     setStage('reading');
+    setProgressStage('reading');
     setDragActive(false);
     dragCounter.current = 0;
     let result: ImportResult;
     try {
-      result = await readImportFile(file);
+      result = await readImportFileWithProgress(file, setProgressStage);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The file could not be read.';
       setErrors([{ message }]);
@@ -122,31 +151,41 @@ export function ImportPanel({ onImport, activeSourceLabel }: ImportPanelProps) {
   const reset = () => {
     setErrors([]);
     setStaged(null);
+    setProgressStage(null);
     setStage('idle');
   };
 
   const confirmImport = () => {
     if (!staged) return;
     onImport(staged.payload, staged.preview);
-    setImportedLabel(staged.preview.fileName);
+    setImportedSummary({
+      fileName: staged.preview.fileName,
+      rowsKept: staged.preview.rowsKept,
+      dateMin: staged.preview.dateMin,
+      dateMax: staged.preview.dateMax,
+    });
+    setProgressStage('done');
     setStage('imported');
     setStaged(null);
   };
 
   const cancelPreview = () => {
     setStaged(null);
+    setProgressStage(null);
     setStage('idle');
   };
 
   const liveMessage =
     stage === 'reading'
-      ? 'Reading file…'
+      ? IMPORT_STAGE_LABELS[progressStage ?? 'reading']
       : stage === 'preview' && staged
         ? `Preview ready: ${staged.preview.rowsKept} of ${staged.preview.rowsRead} rows kept.`
         : stage === 'error'
-          ? 'Import failed.'
-          : stage === 'imported' && importedLabel
-            ? `Imported ${importedLabel}.`
+          ? errors.length === 1 && errors[0]
+            ? errors[0].message
+            : `${errors.length} problems found. ${errors.map((problem) => problem.message).join(' ')}`
+          : stage === 'imported' && importedSummary
+            ? importedMessage(importedSummary)
             : '';
 
   const droppedEntries = staged ? Object.entries(staged.preview.dropped) : [];
@@ -188,7 +227,10 @@ export function ImportPanel({ onImport, activeSourceLabel }: ImportPanelProps) {
             onDrop={onDrop}
           >
             {busy ? (
-              <p className={styles.status}>Reading file…</p>
+              <div className={styles.progress}>
+                <span className={styles.spinner} aria-hidden="true" />
+                <p className={styles.status}>{IMPORT_STAGE_LABELS[progressStage ?? 'reading']}</p>
+              </div>
             ) : (
               <>
                 <p className={styles.status}>Drag a file here, or choose one below.</p>
@@ -228,6 +270,7 @@ export function ImportPanel({ onImport, activeSourceLabel }: ImportPanelProps) {
                 })}
               </ul>
             )}
+            <p className={styles.hint}>Fix the file and try again, or choose a different one.</p>
           </div>
           <button type="button" className={styles.chooseButton} onClick={reset}>
             Try another file
@@ -302,11 +345,13 @@ export function ImportPanel({ onImport, activeSourceLabel }: ImportPanelProps) {
         </div>
       )}
 
-      {stage === 'imported' && (
+      {stage === 'imported' && importedSummary && (
         <div className={styles.importedBlock}>
-          <Callout tone="good">
-            {importedLabel ? `Imported ${importedLabel}.` : 'Import complete.'}
-          </Callout>
+          <svg className={styles.successCheck} viewBox="0 0 52 52" aria-hidden="true" focusable="false">
+            <circle className={styles.successCheckCircle} cx="26" cy="26" r="24" fill="none" />
+            <path className={styles.successCheckMark} fill="none" d="M14 27l7 7 17-17" />
+          </svg>
+          <Callout tone="good">{importedMessage(importedSummary)}</Callout>
           <button type="button" className={styles.chooseButton} onClick={reset}>
             Import another file
           </button>

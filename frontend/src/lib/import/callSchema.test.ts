@@ -61,6 +61,26 @@ describe('parseDurationToSeconds', () => {
     expect(Number.isNaN(parseDurationToSeconds('abc'))).toBe(true);
     expect(Number.isNaN(parseDurationToSeconds('1:2:3:4'))).toBe(true);
   });
+
+  /*
+   * A truncated cell must not become a number. `Number('')` is 0 in JS where
+   * Python's `float('')` raises, so before PR 19 `"2:"` parsed as 120 seconds —
+   * a two-minute call invented out of a malformed field, which is worse than a
+   * rejection because it lands in the mean silently.
+   */
+  it('returns NaN when a component is empty rather than reading it as zero', () => {
+    expect(Number.isNaN(parseDurationToSeconds('2:'))).toBe(true);
+    expect(Number.isNaN(parseDurationToSeconds(':30'))).toBe(true);
+    expect(Number.isNaN(parseDurationToSeconds('1::03'))).toBe(true);
+    expect(Number.isNaN(parseDurationToSeconds(':'))).toBe(true);
+  });
+
+  it('still reads a genuine zero duration as zero', () => {
+    // `0:00` appears in the real export and means a connected call of no
+    // measurable length. It must survive the blank-component check above.
+    expect(parseDurationToSeconds('0:00')).toBe(0);
+    expect(parseDurationToSeconds('0:01')).toBe(1);
+  });
 });
 
 describe('parseCurrency', () => {

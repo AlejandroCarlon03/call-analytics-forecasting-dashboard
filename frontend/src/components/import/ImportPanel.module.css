@@ -48,6 +48,35 @@
   font-size: 14px;
 }
 
+.progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.progress .status {
+  margin: 0;
+}
+
+/* Indeterminate — a spinner, not a percentage. The duration of a browser
+   file read cannot be predicted from its size, so anything that looked like
+   a progress fraction would be a guess dressed up as a measurement. */
+.spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--series1);
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .hint {
   margin: 0;
   color: var(--muted);
@@ -180,6 +209,43 @@
   flex-direction: column;
   gap: 4px;
   align-items: flex-start;
+  animation: rise var(--motion-base) var(--motion-ease) both;
+}
+
+.successCheck {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 4px;
+}
+
+.successCheckCircle {
+  stroke: var(--good);
+  stroke-width: 3;
+  stroke-dasharray: 151;
+  stroke-dashoffset: 151;
+  animation: successCircle var(--motion-base) var(--motion-ease) both;
+}
+
+.successCheckMark {
+  stroke: var(--good);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 34;
+  stroke-dashoffset: 34;
+  animation: successMark var(--motion-base) var(--motion-ease) 150ms both;
+}
+
+@keyframes successCircle {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes successMark {
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 @media (max-width: 480px) {
