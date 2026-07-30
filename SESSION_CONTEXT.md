@@ -39,7 +39,14 @@ architecture and §5 the remaining product work.
 `feature/dashboard-state-consistency`. PR 11 — navigation UX — is in §11, on
 `feature/navigation-ux`. PR 12 — the CSV import workflow — is in §12, on
 `feature/csv-import`. PR 13 — the Export Center — is in §13, on
-`feature/export-center`. All four are frontend only.
+`feature/export-center`. PR 14 — About & Documentation — is in §14, on
+`feature/about-documentation`. All five are frontend only.
+
+**The dashboard now has two views.** The report, and six pages of integrated
+documentation reached from the header's "Docs" control. Both live in the same
+URL fragment; §14's routing subsection is the thing to read before touching
+`selection.ts` or `lib/docs/route.ts`, because the two writers share one
+fragment and the failure mode is silent.
 
 **Read §13's last subsection before running a browser check on this machine.**
 There are two clones of this project here and the default preview configuration
@@ -291,8 +298,13 @@ not in the repo. Drop exports into `data/` to use them.
 ### Known limitations (documented, not bugs)
 - 90-day intervals are extrapolated past the 7-day CV horizon.
 - Exogenous features are held at a trailing 28-day average across the horizon.
-- Minute-resolution timestamps + no call ID → cross-file de-duplication matches
-  on content plus within-file position. A call ID would make this exact.
+- Cross-file de-duplication uses `call_id` when the export carries one
+  (`ingest.py:564`) and otherwise falls back to content plus within-file
+  position, because timestamps are minute-resolution. The RetellAI exports in
+  use today have no call ID, so the fallback is the path that actually runs —
+  but the exact path exists and activates the day the column appears.
+  *(Corrected in PR 14; this line previously claimed there was no ID path at
+  all.)*
 - Erlang assumes Poisson arrivals; real traffic is burstier, so estimates are
   mildly optimistic.
 - `scenarios.*` defaults (1 agent, 9h, 80%-in-30s, 100s patience) are
@@ -1972,3 +1984,222 @@ because an absolute path containing spaces fails to spawn.
 
 Two clones of one repo both syncing through OneDrive is also a file-lock hazard
 (§6). The Desktop copy was left untouched pending a decision about it.
+
+---
+
+## 14. Phase 2 — About & Documentation
+
+**Added by PR 14** (branch `feature/about-documentation`). Frontend only: no
+Python source changed, no payload field added, `SCHEMA_VERSION` untouched. Three
+non-frontend files are in the diff — `call_forecast/assets/dashboard_template.html`
+(the committed build artefact, re-synced per §6) and the two size-advisory
+constants, raised below.
+
+Built by three agents against a contract the lead froze first
+(`src/lib/docs/types.ts` and `src/lib/docs/route.ts`), with disjoint file
+ownership so no file had two authors: `content/docs/*` (content),
+`components/docs/*` (nav and page structure), `components/docs/blocks/*`
+(renderers). Same shape as PRs 12 and 13, and for the same reason.
+
+### The question that shaped the PR
+
+**Documentation is a view, not a section.** The obvious implementation — a tenth
+section appended to the report — puts six pages of prose underneath the
+scenarios table, where nobody looking for an explanation would find it and
+everybody scrolling the report has to pass it. The docs replace the report
+inside the same `AppShell`: same header, same provenance line, same theme, same
+page frame, and only the rail and the content region change.
+
+That also means the report's sections are **unmounted** while the docs are open,
+which is PR 7's choice for filtering arriving in a new place and justified by the
+same fact: a Plotly chart that is present but unrendered gets measured at zero
+width; one that is absent cannot be. Returning to the report remounts every
+chart and each measures itself fresh — verified, all six at 905px with their
+five distinct derived heights intact.
+
+### The routing trap, which is the thing most likely to be broken later
+
+The fragment already carried `model=` and `horizon=`. Documentation joins it as
+`view=` and `page=`, so a link to the page explaining feature importance
+survives being pasted into a message — the same argument PR 7 made for putting
+the selection there at all.
+
+***The two writers share one fragment and neither may rebuild it.***
+`formatHash` composed a fresh `URLSearchParams` from the selection alone. A docs
+writer doing the same would have deleted `model=`/`horizon=` the moment a reader
+opened the docs, and a rail click would have ejected them from the docs. Neither
+throws. Both just silently lose state, which is the §10 failure mode exactly.
+
+So `formatHash` gained an optional `base`, and `applyDocsRoute` merges rather
+than formats. Each writer deletes and rewrites **only the keys it owns**, and
+leaves everything else alone. `base` is optional so the 25 existing selection
+tests pass unmodified, which is the evidence the change was additive.
+
+```
+#model=total_cost&horizon=30                      the report, cost, 30 days
+#model=total_cost&horizon=30&view=docs            the docs, selection remembered
+#model=total_cost&horizon=30&view=docs&page=metrics
+#model=total_cost&horizon=30                      back, unchanged
+```
+
+That four-step round trip is verified in a real browser, through the real
+controls, and is pinned by `route.test.ts` in both directions.
+
+**There is still exactly one `useSyncExternalStore` subscriber.** `route` and
+`navigate` are returned from `useHashSelection` rather than from a second hook,
+because a second hook would be a second subscription to the same browser value
+with two components rendering from it independently. No component reads
+`location`; §8's rule is intact.
+
+### The content model is data, and that is what made three agents possible
+
+`lib/docs/types.ts` is a closed `DocBlock` union — paragraph, heading, list,
+callout, table, definitions, code, diagram, modelCard, faq. Pages are plain
+values with no JSX and no imports from `components/`, so content could be
+written, reviewed and tested entirely independently of how it renders.
+
+**No markdown renderer, and there will not be one.** The structure a doc page
+needs is small and closed, so enumerating it is cheaper than shipping a parser
+for it — and §13 left 8,450 bytes of advisory headroom. The block switch carries
+a `never` exhaustiveness check, so adding a kind without a renderer is a compile
+error rather than a silently blank page.
+
+*Three markdown backticks were caught in review* and removed. There is no
+renderer, so a backtick-wrapped function name would have rendered its backticks
+literally. Prose carries no markup; structure comes from choosing the right
+block kind.
+
+### Pages
+
+Six, in reading order. `how-a-prediction-is-made` was added mid-PR at the
+product owner's request and sits **second**, as the orientation page.
+
+| Page | What it answers |
+|---|---|
+| About | Purpose, architecture, backend/frontend split, workflow |
+| How a prediction is made | One number from a CSV row to a chart, in seven steps |
+| Forecasting models | All six in `REGISTRY`, five fields each |
+| How forecasting works | Pipeline, intervals, horizons, uncertainty, selection |
+| Reading the dashboard | Every chart and metric, and how to interpret it |
+| Data quality | Missing data, coverage, and why volume bounds accuracy |
+
+**The models page documents six models, not the three the brief named as
+examples** — `seasonal_naive`, `linear_regression`, `random_forest`, `xgboost`,
+`prophet`, `sarima`, which is what `models/registry.py` actually contains. The
+brief said to use the models actually present, and that is six.
+
+**Every numeric claim was verified against source during review**, not taken on
+trust: the `min_observations` floors (14 seasonal-naive, 28 SARIMA, 30 for the
+other four) against `config.yaml`; `n_cycles = 4` against `baseline.py`;
+XGBoost's reduction to 200 boosting rounds under 60 training rows against
+`tabular.py:178`; RidgeCV with `StandardScaler` and median imputation with an
+indicator column against `tabular.py:47,87`. All correct as written.
+
+One claim contradicted this document and the code was right: §5 says
+de-duplication matches on content plus within-file position, but
+`ingest.py:564-571` dedupes on `call_id` when the export has one and falls back
+to content-plus-position only when it does not. **§5 is the stale line here.**
+
+The data-quality page quotes §4's real result — MASE 1.34 / 0.80 / 1.36 on the
+71-day export against 0.79 / 0.69 / 0.79 on the 210-day sample. That the honest
+number is also the most useful thing that page can say is the reason it leads
+with it.
+
+### The diagram is vertical at every width, and that was a fix
+
+The step flow was built to turn horizontal above 480px. It does not, and the
+reason is worth recording: every step carries a sentence of detail, so in a row
+each step is wide enough to wrap onto a line of its own — leaving the steps
+stacked vertically while the connectors, un-rotated by the horizontal rule,
+still pointed **right**. A diagram whose arrows disagree with its own layout is
+worse than one that never turns. Found in browser verification at 1280px, not by
+a test. The media query now caps the measure instead of changing the direction.
+
+*The connector's box is a square on purpose.* A transform does not change an
+element's layout box but it does contribute to the scrollable overflow area, so
+a wider-than-tall glyph rotated 90° pushed past the figure's right edge and
+earned it a few pixels of horizontal scroll at 375px.
+
+### Tests: 395 frontend, up from 313
+
+| File | What it pins |
+|---|---|
+| `lib/docs/route.test.ts` (18) | parse/apply, degradation of unknown view and page, round-trip of every id, and — the point — that the two writers do not erase each other in either direction |
+| `content/docs/content.test.ts` (28) | every id has a page, a `modelCard` per name in `REGISTRY`, all five fields non-empty, uniform table row widths, and the seven prediction-flow step labels **in order** |
+| `components/docs/DocsNav` · `DocsView` · `DocsBreadcrumbs` (24) | page list and order, one `aria-current`, arrow/Home/End focus movement without selection, Enter still commits, the bold-width reservation, prev/next at the ends |
+| `components/docs/blocks/DocBlocks.test.tsx` (12) | every kind's semantic element by role, table accessible name from its caption, a `pre`/`code` pair carrying `data-language`, the model card's five labelled groups, native `details` toggling |
+
+No existing test was modified or weakened — the only changed source files are
+`App.tsx`, `DashboardHeader.*`, `selection.ts` and `useHashSelection.ts`, and
+all 25 selection tests pass against the additive `base` parameter untouched.
+
+### Verified against a live dev server
+
+At 1280px and 375px, on the 210-day sample fixture, driving the real controls:
+
+```
+#model=total_cost&horizon=30    report   6 figures · rail on "Daily cost"
+  header "Docs"                 docs     0 figures · hash gains &view=docs
+  rail "Reading the dashboard"  docs     &page=metrics · h2 changes
+  "Back to report"              report   6 figures · selection intact
+```
+
+Six nav pages in `DOC_PAGE_IDS` order; heading hierarchy h1 to h2 to h3 with no
+skipped level; six model cards with **text** labels for strengths and weaknesses
+rather than colour alone (§6); dark and light both resolve from tokens
+(`#0d0d0d` / `#f9f9f7`); zero horizontal page overflow at 375px and 1280px; the
+rail collapses to a strip below 900px; no console output beyond Vite and React
+DevTools notices.
+
+**Note for the next browser pass.** `resize_window` *did* take this time, unlike
+§11's experience — 375px and 1280px both applied and the media queries responded.
+Screenshots, however, render at a fraction of scale in this pane and are not
+readable; the DOM assertions above are the reliable instrument, which is what
+§11 already concluded by a different route.
+
+**Unverified, unchanged from PRs 5–13 and still the pane rather than the code.**
+Live resizing, and keyboard *activation* of a rail button. Still one pass in a
+real browser.
+
+### Both size advisories were crossed, and both were raised
+
+§13 said "the next PR of any size will cross it" with 8,450 bytes of headroom.
+It did.
+
+| Gate | Was | Now | This PR | Limit (unchanged) |
+|---|---|---|---|---|
+| Committed template | 1,750,000 | **1,800,000** | 1,770,745 | 2,600,000 |
+| Generated dashboard | 2,000,000 | **2,100,000** | 2,046,019 | 3,000,000 |
+
+That is the two-tier policy working as §12 designed it. **No dependency was
+added** — `package.json` and `package-lock.json` are untouched — so the ~54 KB
+is prose held as data plus its renderers, which is the cheap kind of growth. The
+limits are untouched and the lever if one is ever genuinely approached is
+unchanged: the custom Plotly partial bundle, still ~85% of the template.
+
+### Verified locally, PR 14
+
+Node 24.18.0 · npm 11.18.0 · Python 3.12.10.
+
+- `npm run typecheck` — clean.
+- `npm test` — **395 passed** (313 before this PR).
+- `npm run build` produced `dist/index.html` at **1,770,745 bytes** (1,716,276
+  before).
+- `scripts/sync_template.py` re-run and `--check` clean; `gen_tokens.py --check`
+  clean (no `THEME` change — the docs use existing tokens only).
+- `scripts/check_bundle_size.py` — **2,046,019 of 2,100,000**, 53,981 of headroom.
+- `pytest tests/ -q` — **265 passed**, exit 0. `--doctest-modules` — 18
+  (17 passed, 1 skipped). §4's collection crash did not reproduce. Nothing under
+  `call_forecast/` changed except the regenerated template, so this is
+  confirmation rather than coverage of new Python.
+
+### Two things left for later
+
+- **`Callout` still takes `children: string`**, so a doc callout is prose with
+  no inline emphasis or links. §12 recorded the same limit; a `ReactNode`
+  overload is the change when a callout needs a link.
+- **The docs need a loaded payload to be reachable**, because they render inside
+  the shell and the error branch returns before it. In production the payload is
+  inlined in the same file, so a load failure is close to impossible — but a
+  reader who hits the error screen is exactly the one who would benefit from an
+  explanation, and the pages themselves depend on no payload at all.

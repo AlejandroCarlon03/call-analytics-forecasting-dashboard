@@ -62,7 +62,11 @@ MARKER = "<!--dashboard-data-->"
 #: adds a feature. The limit is where the template alone would leave no room
 #: for a payload under the generated file's own hard limit, and crossing it is
 #: a real problem rather than ordinary growth.
-TEMPLATE_ADVISORY_BYTES = 1_750_000
+#:
+#: Raised from 1,750,000 by PR 14 (documentation), which took the template from
+#: 1,716,276 to 1,770,745 — about 54 KB for six pages of prose, ten block
+#: renderers and the docs nav, with no new dependency.
+TEMPLATE_ADVISORY_BYTES = 1_800_000
 TEMPLATE_LIMIT_BYTES = 2_600_000
 
 

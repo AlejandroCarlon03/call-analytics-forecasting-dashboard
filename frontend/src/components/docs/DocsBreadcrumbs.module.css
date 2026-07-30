@@ -1,0 +1,49 @@
+.breadcrumbs {
+  margin-bottom: 12px;
+}
+
+.list {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A slash between crumbs, drawn as a sibling rather than reserved as a
+   separate list item, so a screen reader's list-item count is only ever the
+   number of real crumbs. */
+.list li + li::before {
+  content: '/';
+  color: var(--muted);
+}
+
+.crumbButton {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.crumbButton:hover {
+  color: var(--ink);
+}
+
+.current {
+  color: var(--ink);
+  font-weight: 600;
+}

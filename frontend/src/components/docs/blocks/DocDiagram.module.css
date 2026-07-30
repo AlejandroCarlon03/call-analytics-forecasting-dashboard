@@ -1,0 +1,103 @@
+.figure {
+  margin: 0 0 20px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/**
+ * ***The flow is vertical at every width, deliberately.***
+ *
+ * A horizontal row was tried and removed. Every step carries a sentence of
+ * detail, so in a row each step's content is wide enough to wrap it onto a line
+ * of its own — which left the steps stacked vertically while the connectors,
+ * un-rotated by the horizontal rule, still pointed *right*. A diagram whose
+ * arrows disagree with its own layout is worse than one that never turns.
+ *
+ * Seven captioned boxes side by side would also be cramped at any width this
+ * page actually gets, and vertical is how the pipeline is drawn everywhere else
+ * in this project's documentation.
+ */
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stepBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 8px 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.stepNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--series1);
+  color: var(--surface);
+  font-size: 11px;
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.stepLabel {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.stepDetail {
+  color: var(--ink2);
+  font-size: 13px;
+}
+
+.connector {
+  align-self: center;
+  color: var(--muted);
+  font-size: 16px;
+  flex: 0 0 auto;
+  /* Points downward, at every width — see the note on `.steps` above.
+
+     **The box is a square on purpose.** A transform does not change an
+     element's layout box but it does contribute to the scrollable overflow
+     area, so a wider-than-tall glyph rotated 90° pushes past the figure's right
+     edge and earns it a stray few pixels of horizontal scroll at 375px. A
+     square is its own rotation, so the bounds are identical either way. */
+  display: block;
+  width: 16px;
+  height: 16px;
+  line-height: 16px;
+  text-align: center;
+  transform: rotate(90deg);
+}
+
+.caption {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* Cap the measure on wide screens so a step's detail sentence stays readable
+   rather than running the full width of the report column. */
+@media (min-width: 720px) {
+  .steps {
+    max-width: 620px;
+  }
+}

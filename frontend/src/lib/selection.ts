@@ -82,9 +82,23 @@ export function parseHash(hash: string, domain: SelectionDomain): Selection {
  * Defaults are omitted, so the unfiltered dashboard has an empty fragment and
  * the URL only carries what the reader actually chose. Returns `''` — not
  * `'#'` — when nothing is selected, so a caller can clear the fragment.
+ *
+ * **`base` carries keys this module does not own.** The fragment is shared with
+ * `lib/docs/route.ts`, which writes `view=` and `page=`; rebuilding from an
+ * empty `URLSearchParams` would delete those every time the reader touched the
+ * rail. Omitting `base` keeps the original behaviour exactly — this parameter
+ * is additive, and the selection keys are still authored here and nowhere else.
  */
-export function formatHash(selection: Selection, domain: SelectionDomain): string {
-  const params = new URLSearchParams();
+export function formatHash(
+  selection: Selection,
+  domain: SelectionDomain,
+  base = '',
+): string {
+  const params = new URLSearchParams(base.replace(/^#/, ''));
+  // Owned keys are rewritten from `selection`, never merged: a stale `model=`
+  // surviving in `base` would outrank the value being written.
+  params.delete(MODEL_KEY);
+  params.delete(HORIZON_KEY);
 
   if (selection.target !== null && domain.targets.includes(selection.target)) {
     params.set(MODEL_KEY, selection.target);
