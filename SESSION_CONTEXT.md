@@ -337,6 +337,11 @@ not in the repo. Drop exports into `data/` to use them.
 
 ## 6. Development Guidelines
 
+**§16 is the standing instruction on when to run the test suites.** Read it
+before running anything: the short version is that the branch is assumed green,
+the full Python suite is a pre-commit gate rather than a warm-up, and a
+frontend-only change does not run it at all.
+
 **Environment.** Create virtualenvs **outside** OneDrive (`~/.venvs/<project>`).
 OneDrive locks files mid-install and corrupts pip. Skip
 `pip install --upgrade pip` — most collision-prone write, rarely needed.
@@ -2386,3 +2391,48 @@ Node 24.18.0 · npm 11.18.0 · Python 3.12.10.
   it did not, which was true of the shell those sessions ran in, not of the
   machine. The Python result is confirmation rather than coverage: nothing under
   `call_forecast/` changed except the regenerated template.
+
+---
+
+## 16. Testing Workflow Instructions
+
+**Standing instruction for Claude Code sessions on this repository.** It is
+about *when* to run the suites, not what they cover — §4 has the suite's health
+and §9 has what CI runs.
+
+This repository has an established CI pipeline (§9), and **the current branch
+should be assumed to be passing unless there is evidence otherwise.**
+
+**Do not run the full Python suite (`pytest tests/ -q`) at the start of a task
+or a PR request.** It takes several minutes. Run it only:
+
+- before a final PR or commit;
+- when explicitly requested;
+- when the change touches broad backend functionality and targeted testing is
+  not sufficient to cover it.
+
+During implementation:
+
+- Skip baseline test verification.
+- Inspect the relevant files first.
+- Run targeted tests for the files actually modified, where that is possible.
+- Do not spend time validating unrelated parts of the repository.
+
+Preferred workflow:
+
+1. Understand the requested change.
+2. Inspect the relevant code paths.
+3. Implement the change.
+4. Run targeted validation.
+5. Run the complete suite only before final completion.
+
+**For frontend-only changes** (React / TypeScript / UI), do not run the Python
+suite at all unless the change affects Python-generated data contracts,
+serializers, APIs or backend behaviour. `serialize.py` and the payload contract
+are the line: a change that does not cross it is checked by `npm run typecheck`,
+`npm test`, `npm run build` and `scripts/sync_template.py --check`.
+
+*Note that a frontend change still regenerates
+`call_forecast/assets/dashboard_template.html` (§6, §8) — that is a build
+artefact, not backend behaviour, and `sync_template.py --check` is its gate.
+Regenerating it is not on its own a reason to run pytest.*
