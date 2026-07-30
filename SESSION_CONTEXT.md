@@ -40,7 +40,8 @@ architecture and §5 the remaining product work.
 `feature/navigation-ux`. PR 12 — the CSV import workflow — is in §12, on
 `feature/csv-import`. PR 13 — the Export Center — is in §13, on
 `feature/export-center`. PR 14 — About & Documentation — is in §14, on
-`feature/about-documentation`. All five are frontend only.
+`feature/about-documentation`. PR 15 — External Integrations — is in §15, on
+`feature/external-integrations`. All six are frontend only.
 
 **The dashboard now has two views.** The report, and six pages of integrated
 documentation reached from the header's "Docs" control. Both live in the same
@@ -335,6 +336,11 @@ not in the repo. Drop exports into `data/` to use them.
 ---
 
 ## 6. Development Guidelines
+
+**§16 is the standing instruction on when to run the test suites.** Read it
+before running anything: the short version is that the branch is assumed green,
+the full Python suite is a pre-commit gate rather than a warm-up, and a
+frontend-only change does not run it at all.
 
 **Environment.** Create virtualenvs **outside** OneDrive (`~/.venvs/<project>`).
 OneDrive locks files mid-install and corrupts pip. Skip
@@ -2203,3 +2209,230 @@ Node 24.18.0 · npm 11.18.0 · Python 3.12.10.
   inlined in the same file, so a load failure is close to impossible — but a
   reader who hits the error screen is exactly the one who would benefit from an
   explanation, and the pages themselves depend on no payload at all.
+
+---
+
+## 15. Phase 2 — External Integrations
+
+**Added by PR 15** (branch `feature/external-integrations`). Frontend only: no
+Python changed, no payload field added, `SCHEMA_VERSION` untouched. The one
+non-frontend file in the diff is `call_forecast/assets/dashboard_template.html`,
+the committed build artefact, re-synced per §6.
+
+Goal: an **External Resources** section in the sidebar — RetellAI's dashboard,
+the repository, the README — kept visibly and structurally apart from the model
+rail. Deliberately small: one config file, one component, one stylesheet, two
+one-line renders.
+
+### The links are anchors, and that is the whole safety argument
+
+Everything else in either rail is a `<button>`, because selecting a model or a
+doc page filters the view *in place*. These three go to another document on
+another origin, which is the contract an anchor makes and a button does not.
+Choosing `<a href target="_blank">` is what makes four of this PR's requirements
+true by construction rather than by care:
+
+- **They cannot become a selected page.** `aria-current` is how both rails mark
+  the current one; nothing in `ExternalLinks` ever sets it, and no stylesheet
+  rule here reads it. There is no selected state to apply.
+- **They cannot touch the URL state.** An `href` to an absolute `https:` URL
+  replaces the document rather than editing the fragment. The collision
+  `AppShell`'s skip link had to defend against (§11 — following `#report` would
+  *write* the fragment and clear the model selection) simply does not arise for
+  a link that leaves the page. `ExternalLinks` reads and writes no `location`,
+  registers no click handler, and holds no state.
+- **Keyboard access is the platform's.** Enter activates; the browser's own
+  open-in-new-tab affordances work. Nothing to reimplement and nothing to break.
+- ***`moveFocus` cannot see them.*** Both rails' arrow-key handlers read
+  `event.currentTarget.querySelectorAll('button')`, and the section is rendered
+  as a sibling *outside* `.tabs` besides. Arrow/Home/End movement is therefore
+  unchanged by this PR at the level of what the code can reach, not merely
+  observed to be unchanged — and `ExternalLinks.test.tsx` re-pins it anyway,
+  because this is the PR that could have broken it.
+
+`rel="noopener noreferrer"`. `noopener` denies the opened page a handle on
+`window.opener`; `noreferrer` keeps this dashboard's `file://` or intranet URL
+out of a third party's referrer log. Both matter more than usual here — the
+shipped artefact is a single self-contained HTML file that gets mailed around.
+
+### One config file, and the component knows nothing about any entry
+
+`src/config/externalLinks.tsx` exports `EXTERNAL_LINKS: ExternalLink[]` —
+`{ id, label, href, description, icon }`. **It is the only place these URLs
+appear.** Repointing, adding or removing a link is an edit there and nowhere
+else; `ExternalLinks` maps over whatever it finds and returns `null` on an empty
+array.
+
+`.tsx` rather than `.ts` because `icon` is a `ReactNode`. This codebase had **no
+icon system at all** before this PR — no SVG in any component, no icon library —
+so rather than introduce one, the three icons are inline 16px line SVGs defined
+beside the entries they belong to. They stroke in `currentColor`, which is the
+whole theming story: an icon inherits the link's colour and so restyles with
+hover, focus and the light/dark toggle without a single theme-aware rule of its
+own. Every icon is `aria-hidden`, because each sits beside its own text label.
+
+`description` does double duty: the `title` attribute (the hover tooltip) and a
+visually hidden tail on the accessible name. Three links that all leave the page
+read identically to a screen reader without it, and "opens in a new tab" is
+exactly the part a screen-reader user cannot get from the trailing indicator
+glyph.
+
+**Documentation points at the repository README, not at the in-app docs.** The
+header's "Docs" control already reaches those, and they are a *view of this
+page* rather than a destination on the web — sending a reader off-site for
+something they can read in place would be the worse of the two, and would also
+have made an external link behave like dashboard routing, which is the one thing
+this section must not do.
+
+### Rendered in both rails, from one component
+
+`SideNav` renders it below `.tabs` and above the live region; `DocsNav` renders
+it below "Back to report". Same component, same config, nothing docs-specific —
+the docs view is where a reader is most likely to want the repository, and a
+shortcut section that vanished on the way there would read as a bug.
+
+It sits **outside** `.tabs` in both, which is what keeps every `[aria-current]`
+rule and both `moveFocus` handlers scoped to the tabs alone.
+
+**One consequence worth knowing.** `SideNav` returns `null` on an empty `tabs`,
+and `App` omits the rail entirely when a run produced no forecasts — so on that
+payload there is no sidebar and therefore no external links either. That is the
+existing rail fallback (§8, "with no rail the report falls back to a single
+full-width column") left deliberately unchanged rather than an oversight;
+changing it would have meant editing `AppShell`'s nav contract, which is outside
+what this PR was scoped to touch.
+
+`ExternalLinks.module.css` reuses the rails' spacing scale, radii, `--motion-*`
+tokens and hover treatment — one visual language, no new palette entry, no
+`THEME` change (`gen_tokens.py --check` is clean). What it deliberately does not
+copy is the `background-size` active-indicator machinery from §11: there is no
+selection here to indicate. Separation is a `border-top` plus 20px of space — a
+footnote to the rail, not a competing panel.
+
+**Below 900px the separator stays a top rule.** A left rule was written first
+and discarded: at that width the section is stacked *below* the tab strip in
+`SideNav` and wrapped onto its own line in `DocsNav`'s flex row, so a left rule
+would be drawn beside nothing in both. The list wraps rather than scrolls —
+three fixed links fit on two rows, and a second horizontal scroller under the
+tab strip would be one too many. `flex: 1 0 100%` is what makes `DocsNav`'s row
+break the line before the section instead of tucking it beside the last tab.
+
+### Tests: 406 frontend, up from 395
+
+`shell/ExternalLinks.test.tsx` (+11): one link per config entry in order,
+`target="_blank"` with both `rel` tokens on every link, every `href` absolute
+`https:` (a relative or `#` href would edit the fragment that carries the
+selection), no `aria-current` anywhere, the accessible name carrying the
+description, every icon `aria-hidden`, Tab reaching each link in turn, and —
+inside a real `SideNav` — that the section holds no buttons, that both `<nav>`s
+keep their own labels, and that End-then-ArrowDown still wraps within the model
+tabs rather than walking into the links.
+
+No existing test was modified or weakened.
+
+### Verified against a live dev server
+
+Port 5177, on the 210-day sample fixture. The `<nav aria-label="External
+resources">` renders three links with the configured hrefs in order, each
+`target="_blank" rel="noopener noreferrer"`, each with its `title`, each with
+two SVGs (icon + indicator), none with `aria-current`. Two labelled navigation
+regions on the page, "Models" and "External resources".
+
+- **Tab order**, from the top of the rail: All → the three model tabs → the
+  three external links → the import control. One stop per link, in DOM order.
+- **Selection is untouched.** `#model=total_cost&horizon=30` still filters to
+  6 figures with exactly one `aria-current` on the rail and zero in the external
+  section; the fragment reads back byte-identical after the section is rendered
+  and tabbed through.
+- **Docs routing is untouched.** "Docs" → `#model=total_cost&horizon=30&view=docs`
+  with the section present and sitting after "Back to report"; "Back to report"
+  → `#model=total_cost&horizon=30` and 6 figures again. The model selection
+  survives the round trip.
+- **Theme.** Link colour resolves `--ink2` at `#52514e` light / `#c3c2b7` dark
+  across a toggle, and the separator restyles with it. The icon colour is
+  `--muted`, which is the same value in both palettes — a property of the
+  audited palette, not a missed rule.
+- No console output. No horizontal page overflow.
+
+***§11's instrumentation trap bit again and the next person should not re-find
+it.*** The pane does not composite when it is not displayed, so **every
+transitioned property freezes at its start value** — the first theme read
+reported the link's colour as unchanged across a full light/dark toggle while
+the untransitioned separator restyled correctly. Injecting
+`* { transition: none !important }` before reading resolves it, which is how the
+colours above were measured. This is the technique to reuse, and it is now the
+second PR to rediscover it.
+
+**Unverified, unchanged from PRs 5–14 and still the embedded browser rather than
+the code.** A screenshot could not be taken at all — the pane must be displayed
+to composite, and it was not. `resize_window` still does not take: `innerWidth`
+stayed at 944 after a request for 375, so the ≤900px assertions rest on the
+media query being active (`flex-direction: row`, the wrap observed, no page
+overflow) rather than on a real 375px viewport. Live resizing and keyboard
+*activation* likewise. One pass in a real browser is still owed, and this PR
+adds nothing new to that list.
+
+### Verified locally, PR 15
+
+Node 24.18.0 · npm 11.18.0 · Python 3.12.10.
+
+- `npm run typecheck` — clean.
+- `npm test` — **406 passed** (395 before this PR).
+- `npm run build` → `dist/index.html` at **1,775,038 bytes** (1,770,745 before);
+  +4,293 for the config, the component and its stylesheet. No dependency added,
+  so `package.json` and `package-lock.json` are untouched.
+- `scripts/sync_template.py` re-run and `--check` clean; `gen_tokens.py --check`
+  clean.
+- `scripts/check_bundle_size.py` — **2,050,312 of 2,100,000**; headroom 49,688,
+  down from 53,981. Both gates unchanged from §14.
+- `pytest tests/ -q` — **265 passed**, exit 0, in `~/.venvs/callforecast`
+  (pytest 9.1.1 · pandas 3.0.5). §4's collection crash did not reproduce.
+  ***This checkout does have a Python environment*** — §11 and §12 recorded that
+  it did not, which was true of the shell those sessions ran in, not of the
+  machine. The Python result is confirmation rather than coverage: nothing under
+  `call_forecast/` changed except the regenerated template.
+
+---
+
+## 16. Testing Workflow Instructions
+
+**Standing instruction for Claude Code sessions on this repository.** It is
+about *when* to run the suites, not what they cover — §4 has the suite's health
+and §9 has what CI runs.
+
+This repository has an established CI pipeline (§9), and **the current branch
+should be assumed to be passing unless there is evidence otherwise.**
+
+**Do not run the full Python suite (`pytest tests/ -q`) at the start of a task
+or a PR request.** It takes several minutes. Run it only:
+
+- before a final PR or commit;
+- when explicitly requested;
+- when the change touches broad backend functionality and targeted testing is
+  not sufficient to cover it.
+
+During implementation:
+
+- Skip baseline test verification.
+- Inspect the relevant files first.
+- Run targeted tests for the files actually modified, where that is possible.
+- Do not spend time validating unrelated parts of the repository.
+
+Preferred workflow:
+
+1. Understand the requested change.
+2. Inspect the relevant code paths.
+3. Implement the change.
+4. Run targeted validation.
+5. Run the complete suite only before final completion.
+
+**For frontend-only changes** (React / TypeScript / UI), do not run the Python
+suite at all unless the change affects Python-generated data contracts,
+serializers, APIs or backend behaviour. `serialize.py` and the payload contract
+are the line: a change that does not cross it is checked by `npm run typecheck`,
+`npm test`, `npm run build` and `scripts/sync_template.py --check`.
+
+*Note that a frontend change still regenerates
+`call_forecast/assets/dashboard_template.html` (§6, §8) — that is a build
+artefact, not backend behaviour, and `sync_template.py --check` is its gate.
+Regenerating it is not on its own a reason to run pytest.*

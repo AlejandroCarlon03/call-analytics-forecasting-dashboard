@@ -1,6 +1,7 @@
 import type { KeyboardEvent } from 'react';
 import { DOC_PAGE_IDS, type DocPageId } from '../../lib/docs/types';
 import { DOC_PAGES } from '../../content/docs';
+import { ExternalLinks } from '../shell/ExternalLinks';
 import styles from './DocsNav.module.css';
 
 interface DocsNavProps {
@@ -50,6 +51,11 @@ export function DocsNav({ current, onSelect, onExit }: DocsNavProps) {
       <button type="button" className={styles.exit} onClick={onExit}>
         Back to report
       </button>
+      {/* The same section the model rail carries, so the shortcuts do not
+          vanish when the reader is in the docs view — the one place they are
+          most likely to want the repository. Rendered from the same component
+          and the same config; nothing about it is docs-specific. */}
+      <ExternalLinks />
       {/* Visually hidden: sighted readers see the change through the tab's own
           weight, surface and bar, but a screen-reader user needs it spoken. */}
       <div aria-live="polite" className={styles.liveRegion}>

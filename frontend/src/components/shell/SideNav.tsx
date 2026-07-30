@@ -1,4 +1,5 @@
 import type { KeyboardEvent } from 'react';
+import { ExternalLinks } from './ExternalLinks';
 import styles from './SideNav.module.css';
 
 export interface NavTab {
@@ -84,6 +85,11 @@ export function SideNav({ tabs, selected, onSelect }: SideNavProps) {
           </button>
         ))}
       </div>
+      {/* Outside `.tabs`, which is what keeps `moveFocus` — and every
+          `[aria-current]` rule in the stylesheet — scoped to the model tabs
+          alone. Its own `<nav>` with its own label, because these are not
+          models and not pages of this report. */}
+      <ExternalLinks />
       {/* Visually hidden: sighted readers see the change through the tab's
           own weight, surface and left bar, but a screen-reader user gets
           nothing from those and needs the change spoken instead. */}
