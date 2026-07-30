@@ -13,6 +13,17 @@ REM ======================================================================
 setlocal
 cd /d "%~dp0"
 
+REM ----------------------------------------------------------------------
+REM   %~dp0 expands WITH a trailing backslash, and a backslash immediately
+REM   before a closing quote escapes that quote. So "%~dp0" reaches the
+REM   program as  C:\path\to\project"  - quote included, path corrupted.
+REM   Every argument built from %~dp0 has to have that separator removed
+REM   first. Symptom if this regresses:
+REM     OSError: [WinError 123] ... 'C:\...\project"\data'
+REM ----------------------------------------------------------------------
+set "ROOT=%~dp0"
+if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
+
 set "VENV=%USERPROFILE%\.venvs\callforecast"
 set "PY=%VENV%\Scripts\python.exe"
 
@@ -41,7 +52,7 @@ if not exist "%PY%" (
 echo.
 echo Running the forecast ...
 echo.
-"%PY%" -m call_forecast run -v --root "%~dp0"
+"%PY%" -m call_forecast run -v --root "%ROOT%"
 
 if errorlevel 1 (
     echo.
