@@ -1,0 +1,150 @@
+/* The "External Resources" section of the sidebar.
+   Same spacing scale, radii and motion tokens as SideNav.module.css and
+   DocsNav.module.css — this reads as part of the rail, not as a widget that
+   landed in it. What it deliberately does not copy is the active-indicator
+   machinery: there is no selected state for an external link to be in. */
+
+/* The separation from the navigation above it, and the only thing in this file
+   that exists purely to say "these are not dashboard pages". A rule plus space
+   rather than a heavier container: the section is a footnote to the rail, not a
+   competing panel. */
+.external {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* Matches `.title` in both rails, so the two headings sit on one scale. */
+.title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 600;
+  margin: 0 0 10px 12px;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--ink2);
+  font-size: 13.5px;
+  line-height: 1.35;
+  text-decoration: none;
+
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+
+.link:hover,
+.link:focus-visible {
+  background-color: var(--surface);
+  border-color: var(--border);
+  color: var(--ink);
+}
+
+/* Focus is never removed, only added to: the outline stays the browser's, and
+   the hover styling above is reused so a keyboard reader and a mouse reader
+   see the same affordance. */
+.link:focus-visible {
+  outline: 2px solid var(--series1);
+  outline-offset: 1px;
+}
+
+/* Fixed box so the labels align down the column whatever each glyph's ink
+   extent is, and `flex: 0 0 auto` so a long label never squeezes the icon. */
+.icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+
+.link:hover .icon,
+.link:focus-visible .icon {
+  color: var(--series1);
+}
+
+.label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The external-link glyph, pushed to the trailing edge and kept quiet until
+   the link is engaged — an indicator, not a second icon competing with the
+   first. */
+.indicator {
+  flex: 0 0 auto;
+  color: var(--muted);
+  opacity: 0.65;
+  transition: opacity var(--motion-fast) var(--motion-ease);
+}
+
+.link:hover .indicator,
+.link:focus-visible .indicator {
+  opacity: 1;
+}
+
+/* Off-screen rather than `display: none`, which never enters the accessibility
+   tree and so would not be announced. Matches SideNav.module.css's
+   `.liveRegion` and DataTable.module.css's `.caption`. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Below 900px both rails become a horizontal strip above the report. The links
+   run along the same axis as the tabs do there — but the separator stays a top
+   rule rather than becoming a left one, because this section is stacked below
+   the strip in `SideNav` and wrapped onto its own line in `DocsNav`'s flex row.
+   A left rule would be drawn beside nothing in both. It wraps rather than
+   scrolls: three fixed links fit on two rows at 375px, and a second horizontal
+   scroller under the tab strip would be one too many. */
+@media (max-width: 900px) {
+  .external {
+    margin-top: 12px;
+    padding-top: 12px;
+    /* `100%` so a flex row (DocsNav) breaks the line before this section rather
+       than tucking it beside the last tab. */
+    flex: 1 0 100%;
+    width: 100%;
+  }
+
+  .list {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .link {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    border-color: var(--border);
+    background-color: var(--surface);
+  }
+}
