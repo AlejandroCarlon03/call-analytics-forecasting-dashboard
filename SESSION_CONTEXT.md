@@ -47,7 +47,11 @@ architecture and §5 the remaining product work.
 `feature/landing-experience`, and it changes what the application does on
 load: **the dashboard no longer renders until the reader enters it.** A link
 carrying a fragment (`#model=…`, `#view=docs`) still arrives where it points.
-Read §16 before touching `App.tsx`'s render branches or `lib/entry.ts`.
+Read §16 before touching `App.tsx`'s render branches or `lib/entry.ts`. PR 17 —
+the executive summary cards — is in §17, on `feature/executive-summary-cards`;
+read it before adding anything that derives a figure from the payload, because
+it is where the line between "Python computes it" and "React selects and
+labels it" is drawn.
 
 **The dashboard now has two views.** The report, and six pages of integrated
 documentation reached from the header's "Docs" control. Both live in the same
@@ -107,6 +111,7 @@ call-forecast/
 │   │   │                           #   forecasts, monthly cost, arrivals,
 │   │   │                           #   model comparison, explainability,
 │   │   │                           #   anomalies, scenarios
+│   │   ├── components/summary/     # executive summary cards (§17)
 │   │   ├── components/charts/      # PlotlyChart wrapper + useChartPalette
 │   │   ├── lib/chart/      # palette, baseLayout, sizing, pure figure builders
 │   │   ├── lib/format.ts   # port of dashboard.py _fmt()
@@ -343,7 +348,7 @@ not in the repo. Drop exports into `data/` to use them.
 
 ## 6. Development Guidelines
 
-**§17 is the standing instruction on when to run the test suites.** Read it
+**§18 is the standing instruction on when to run the test suites.** Read it
 before running anything: the short version is that the branch is assumed green,
 the full Python suite is a pre-commit gate rather than a warm-up, and a
 frontend-only change does not run it at all.
@@ -2597,7 +2602,246 @@ Node 24.18.0 · Python 3.12.10.
 
 ---
 
-## 17. Testing Workflow Instructions
+## 17. Phase 3 — Executive Summary Cards
+
+**Added by PR 17** (branch `feature/executive-summary-cards`, cut from
+`feature/landing-experience`). Frontend only: no Python source changed, no
+payload field added, `SCHEMA_VERSION` untouched. The one non-frontend file in
+the diff is `call_forecast/assets/dashboard_template.html`, the committed build
+artefact, re-synced per §6.
+
+Goal: a reader can answer how many calls, at what cost, on which model and in
+which period **before** they read a chart.
+
+### Where it sits, and what it does not replace
+
+A new `Executive summary` section between `Data source` and `Data quality` —
+first in reading order after the import panel, because that is the order it
+exists to enable. **Nothing below it changed.** All nine `build_dashboard()`
+sections, all 12 figures and all 17 tables render exactly as they did; this PR
+adds a way in, it does not replace the analysis.
+
+It deliberately **does not** subsume `At a glance`. The two overlap on two
+numbers and answer different questions: the tiles are the run's descriptive
+headline (calls ingested, alerts raised), the cards are the forecast's
+decision-relevant one (which model, which period, what change). Merging them
+would have meant rewriting a section §10 already made consistent, for no
+reader benefit.
+
+### The eight cards, and where each number comes from
+
+| Card | Source | Kind |
+|---|---|---|
+| Forecasted calls | `forecasts.call_volume.horizons` via `headlineRollup` | payload |
+| Forecasted cost | `forecasts.total_cost.horizons` | payload |
+| Average call duration | `forecasts.avg_duration_sec.horizons` | payload |
+| Highest confidence model | `evaluations[t].leaderboard`, ranked on `mase` | payload |
+| Prediction horizon | `selection.horizon` + first/last trimmed forecast date | payload |
+| Largest predicted change | forecast per-day figure vs the observed trailing mean | **derived — see below** |
+| Peak call day | `max(yhat)` over `trimDaily(forecasts.call_volume.daily)` | payload |
+| Highest risk period | `selectAnomalies(...)` grouped by calendar month | payload, **historical** |
+
+### `lib/executiveSummary.ts` is the third layer, built on the second
+
+`selection.ts` answers "what did the reader choose"; `selectionView.ts` answers
+"which slice of the payload does that name"; this module answers "what are the
+eight numbers". **It is built on the second rather than beside it** — every
+horizon trim, anomaly scope and target-visibility test comes from
+`trimDaily` / `headlineRollup` / `selectAnomalies` / `isTargetVisible`, so a
+card and the chart under it cannot disagree about what is on show. That is the
+same duplication hazard `selectionView.ts`'s own doc comment was written
+against, arriving one layer up.
+
+Pure: payload in, `ExecutiveMetric[]` out. No DOM, no `location`, no React —
+which is why the 26 assertions that matter run without jsdom.
+
+***`headlineRollup(forecast, horizon, 30)` is shared with the at-a-glance
+tiles on purpose.*** Both prefer 30 days and both fall back to the longest
+rollup at or under the reader's horizon, so the executive card and the tile a
+few hundred pixels below it quote one row rather than two numbers that agree
+by coincidence.
+
+### The one derivation, and the payload field whose absence forces it
+
+***Largest predicted change is the only card the payload cannot answer, and
+the derivation is deliberately the smallest one that does.*** It divides two
+numbers Python produced — the forecast's per-day figure over the chosen
+horizon, and the observed per-day figure over the same number of trailing days
+from `payload.daily` — and reports the percentage between them. No model, no
+fit, no smoothing, no trend estimator: it is the comparison a reader makes by
+eye between the two halves of the forecast chart, made once instead of three
+times.
+
+**The missing dependency, stated plainly:** `serialize.py` emits no growth,
+trend or period-over-period field. If a future PR wants a *real* trend — a
+fitted slope, a seasonal decomposition, a significance test — that belongs in
+Python beside `forecast.py` and arrives here as a payload field, and
+`growthMetric` should be deleted the day it does.
+
+Three guards keep it honest, and each is a test: a zero baseline is skipped
+rather than reported as `+∞%`; a window with fewer than `max(3, days/2)`
+observed values produces no baseline at all (`avg_duration_sec` is null on 59%
+of real days); and targets are compared on **relative** change, because
+seconds, dollars and calls cannot be ranked by absolute movement.
+
+### Two cards that had to be honest about what they are not
+
+**Highest risk period is historical, and the card says so.** `anomalies.py`
+evaluates *observed* days; nothing in the payload scores a future period, and
+manufacturing one from interval widths would be exactly the fabricated finding
+§10 exists to remove. So it reports the month carrying the most flagged days
+and labels the number `(observed, not forecast)`. It ranks on critical days
+with warnings only as a tiebreak — five warnings are not one critical, and
+summing them would say they were. Under `analysisAvailable === false` (a CSV
+this browser aggregated) it reports that nothing analysed the data rather than
+that nothing was found: §12's distinction, arriving in a ninth place.
+
+**Highest confidence model ranks on MASE, because that is what the pipeline
+selects on** (§3). Re-ranking on MAE or R² here would have put a card on the
+page disagreeing with the leaderboard below it about which model won. Two
+subtleties are pinned by tests: a row with a null MASE is a *skipped* model and
+may be named but never win a comparison — treating a missing score as a good
+one is how a card crowns the model that never ran — and the `good` tone is
+carried only when MASE < 1, so the card cannot read as reassuring while the
+model is losing to "repeat last week".
+
+### State: there is none, and that is the design
+
+`ExecutiveSummarySection` holds no state. Every card is a pure function of four
+props `App` already owns — the payload (replaced in place by `handleImport`),
+`selectedTarget` and `horizon` (the URL fragment, read by the one
+`useHashSelection` subscriber) and `analysisAvailable` (held beside the
+payload). **No second model state, no local horizon copy, nothing to keep in
+step.** A rail click and an import both move the grid on the next render for
+free, and the `useMemo` depends on exactly those four props, so it recomputes
+precisely when the cards must change.
+
+**A card the rail removed and a card the payload could not fill are different
+facts and render differently.** A target-scoped card is *absent* under a
+selection that excludes it (the `AtAGlanceSection` behaviour); a card whose
+metric the payload cannot answer is *present* with an em dash and **a sentence
+naming the missing dependency**. A grid that rendered those identically would
+teach the reader to ignore both. Every unavailable branch in the module names
+its cause — `avg_duration_sec`, whose learned models the `min_observations`
+floor skips on the real export, is the one that actually fires in production.
+
+### Components
+
+`components/summary/` — `ExecutiveSummaryCard` (one card) and
+`ExecutiveSummarySection` (the grid, the `Section` wrapper and the scope
+blurb), exported through an `index.ts` the way every other component directory
+is.
+
+***The card is not a `StatTile`, and the difference is the unavailable
+state.*** A tile is a headline number and cannot express "this could not be
+computed, and here is why", which is a requirement here rather than an edge
+case. Extending `StatTile` with an unavailable variant would have put that
+state on every tile in the at-a-glance grid, where nothing needs it. The card
+formats nothing — every string arrives resolved from `executiveSummary.ts`,
+for the reason that module documents.
+
+**The grid is a real `<ul>`.** Eight sibling cards give a screen reader no
+sense of how many there are or where in the set it is, which is precisely what
+the grid gives a sighted reader. It is `auto-fit` with a 240px floor — four
+columns on a desktop, two on a tablet, one on a phone, and correct at the
+900px width where the rail collapses and the content region gains 220px —
+rather than three named breakpoints. The floor is 240px against `TileGrid`'s
+190px because these cards carry a sentence under the number, and that is why
+this is its own grid and not `TileGrid`.
+
+### One contrast departure from `StatTile`, measured
+
+`.label` uses `--ink2`, not `--muted`. Measured in the pane: `--muted` on
+`--surface` is **3.50:1** light and 4.85:1 dark — under AA for 12px text in the
+light palette, which is what `StatTile` ships today. `--ink2` is **7.73:1**
+light and **9.72:1** dark. The recession a label needs is carried by the size,
+the weight and the uppercasing, none of which cost contrast; only the colour
+did. Same call §16 made moving the landing hero's eyebrow off `--series1`.
+
+The value colours were measured too and all clear AA at 23–26px bold (the 3:1
+large-text threshold): `--good` 3.27 light / 5.19 dark, `--critical` 4.68 light
+/ 3.62 dark, `--ink` 19.17 / 17.42, `--ink2` detail lines 7.73 / 9.72. **Colour
+is never the only signal** — every toned card states its finding in words on
+the detail line underneath. Every value is an existing token; no literal, no
+`THEME` change, `gen_tokens.py --check` clean.
+
+### Tests: 469 frontend, up from 432
+
+| File | Tests | What it pins |
+|---|---|---|
+| `lib/executiveSummary.test.ts` | 26 | the fixed card order, the shared 30-day preference, that no card quotes a horizon the forecast cards trimmed away, MASE ranking including the null-MASE trap, `Infinity` not printing as a horizon, growth in both directions plus all three guards, peak day inside the trim, risk ranking and the observed/unchecked/clean three-way, and — as a sweep — that no metric is ever `null` without a reason |
+| `components/summary/ExecutiveSummarySection.test.tsx` | 11 | the heading, the cards as a list, the headline figures, an unavailable card stating its reason rather than showing a bare dash, the scope blurb, and the four state paths: selection change, "All" restoring the aggregate, a horizon change retrimming, and an import swapping the payload |
+
+**No existing test file was touched and no existing assertion changed.**
+`App.test.tsx` passes unmodified with the new section in the tree, which is the
+evidence that this PR is additive.
+
+### Verified against a live dev server
+
+Port 5179, on the 210-day sample fixture. A fifth launch configuration was
+added for it (§13's machine hazard: the Desktop clone is stale and 5175–5178
+were taken).
+
+```
+(entered, no fragment)   8 cards · 11 section headings · 12 figures · 1265/1265
+  rail → Daily cost      #model=total_cost · 5 cards · cost, cost's own
+                         Random Forest at MASE 0.79, horizon, change, risk
+                         rescoped from April (9 crit) to June (7 crit)
+  rail → All             8 cards restored, aggregate values back
+  horizon → 30           horizon card 30 Jul – 28 Aug 2026, peak day moves
+                         from 01 Sep to 31 Jul — inside the trim
+```
+
+Responsive: **375px** — no overflow (375/375), one column, value type at 23px.
+**768px** — no overflow (753/753), two columns. **1280px** — no overflow
+(1265/1265). Theme toggle restyles the section from tokens in both directions
+(surface `#fcfcfb` → `#1a1a19`, label 7.73 → 9.72). No console output.
+
+***§11's instrumentation trap applies*** — the contrast numbers were read after
+injecting `* { transition: none !important }`, and `ThemeProvider` writes
+`data-theme` in an effect, so a computed-style read in the same tick as the
+toggle reports the *previous* theme. Both bit once during this PR.
+
+**Unverified, unchanged from PRs 5–16 and still the pane rather than the
+code.** Keyboard activation and live resizing. The pane also pinned the
+viewport at 265px for the screenshot, so the desktop multi-column layout was
+confirmed by computed `grid-template-columns` and measured card widths rather
+than by eye.
+
+### Verified locally, PR 17
+
+Node 24.18.0.
+
+- `npm run typecheck` — clean.
+- `npm test` — **469 passed** (432 before this PR).
+- `npm run build` → `dist/index.html` at **1,792,653 bytes** (1,784,183 before);
+  +8,470 for the module, two components, two stylesheets and the wiring. No
+  dependency added — `package.json` and `package-lock.json` are untouched.
+- `scripts/sync_template.py` re-run and `--check` clean; `gen_tokens.py --check`
+  clean.
+- `scripts/check_bundle_size.py` — **2,067,927 of 2,100,000**; headroom 32,073,
+  down from 40,543.
+- **`pytest` was not run, per §18.** This change does not cross `serialize.py`
+  or the payload contract; the only Python-adjacent file in the diff is the
+  regenerated template, whose gate is `sync_template.py --check`.
+
+### Remaining Phase 3 work
+
+Unchanged from §16, less this item:
+
+- **PR 18 — import history.** The landing page's `Recent imports` placeholder.
+- **Import preview, import animations, navigation redesign, the Forecast
+  Insights panel and the desktop application** are all still unbuilt and were
+  explicitly out of scope here.
+- **Still owed, and now six PRs old:** one pass in a real browser for keyboard
+  activation and live resizing.
+- **Headroom is the thing to watch.** 32 KB against the 2.1 MB budget, down
+  from 40 KB. §8 names the lever when it goes: a custom Plotly partial bundle,
+  not a trimmed payload.
+
+---
+
+## 18. Testing Workflow Instructions
 
 **Standing instruction for Claude Code sessions on this repository.** It is
 about *when* to run the suites, not what they cover — §4 has the suite's health

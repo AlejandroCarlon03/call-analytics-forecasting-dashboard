@@ -1,0 +1,22 @@
+/*
+ * The executive summary grid.
+ *
+ * Fluid rather than breakpoint-driven, the same choice the landing page made
+ * (§16): `auto-fit` with a floor gives four columns on a desktop, two on a
+ * tablet and one on a phone without naming any of those widths, and it keeps
+ * working when the rail collapses at 900px and the content region suddenly
+ * gains 220px.
+ *
+ * The floor is 240px rather than `StatTile`'s 190px because these cards carry a
+ * sentence under the number, and a 190px card wraps a detail line to four
+ * lines. That difference is why this is its own grid and not `TileGrid`.
+ */
+
+.grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
