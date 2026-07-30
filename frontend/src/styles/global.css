@@ -10,10 +10,38 @@
   box-sizing: border-box;
 }
 
+/*
+ * Motion tokens.
+ *
+ * These live here and not in `theme/tokens.css`, which is GENERATED from
+ * `call_forecast.dashboard.THEME` and guarded by `tests/test_tokens.py` — the
+ * Python renderer has no motion to describe, so putting durations there would
+ * mean inventing palette entries that no palette owns.
+ *
+ * Two durations, one easing, one distance, used by everything that moves. A
+ * transition that picks its own numbers is how a dashboard ends up with a rail
+ * that settles after its content does.
+ *
+ *   --motion-fast   hover / focus feedback on a control the pointer is on
+ *   --motion-base   a change of what the page is showing
+ *   --motion-ease   fast out, slow in: responsive to start, calm to finish
+ *   --motion-rise   how far entering content travels; small enough that the
+ *                   final position is never in doubt
+ */
+:root {
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0.2, 1);
+  --motion-rise: 4px;
+}
+
 html {
   /* The page must never scroll sideways. A wide table or chart is allowed to
      scroll inside its own container, and each of those sets overflow-x itself. */
   overflow-x: hidden;
+  /* The rail's anchors and the skip link land smoothly rather than teleporting.
+     Overridden below when the viewer has asked for less motion. */
+  scroll-behavior: smooth;
 }
 
 body {
@@ -40,7 +68,16 @@ h3 {
   border-radius: 4px;
 }
 
-/* Respect a reduced-motion preference rather than smooth-scrolling regardless. */
+/*
+ * Respect a reduced-motion preference rather than smooth-scrolling regardless.
+ *
+ * This is a blanket kill-switch, which is why nothing added for navigation has
+ * to opt into it individually: durations collapse, delays collapse, and any
+ * animation runs exactly once. Collapsing to 0.01ms rather than to `none`
+ * matters — an animation with `animation-fill-mode: both` and `duration: none`
+ * would never reach its `to` frame, leaving entering content stuck at the
+ * opacity it started from.
+ */
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -50,6 +87,9 @@ h3 {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
   }
 }

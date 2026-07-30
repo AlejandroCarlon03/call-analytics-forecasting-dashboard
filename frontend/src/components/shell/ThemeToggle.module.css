@@ -8,8 +8,15 @@
   font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
+  /* The same feedback curve the rail's tabs use. Every control on the page
+     responds to a pointer at one speed, or the header reads as a different
+     application from the rail. */
+  transition:
+    color var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease);
 }
 
 .toggle:hover {
   color: var(--ink);
+  border-color: var(--axis);
 }
