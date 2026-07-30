@@ -24,4 +24,24 @@ declare module 'plotly.js-cartesian-dist-min' {
   ): Promise<void>;
 
   export function purge(root: HTMLElement): void;
+
+  /**
+   * Render a figure off-screen and resolve a PNG/etc data URL.
+   *
+   * Takes the figure directly — no DOM node — which is exactly why `png.ts`
+   * can generate export images without mounting a chart into the component
+   * tree. `figure` is loosened to `{ data; layout }` rather than reusing
+   * `PlotFigure` verbatim: `toImage` also accepts `Partial<PlotFigure>`-ish
+   * inputs in practice, and the two fields are all this bundle's callers ever
+   * pass.
+   */
+  export function toImage(
+    figure: { data: PlotFigure['data']; layout: PlotFigure['layout'] },
+    options: {
+      format: 'png' | 'jpeg' | 'webp' | 'svg';
+      width: number;
+      height: number;
+      scale?: number;
+    },
+  ): Promise<string>;
 }

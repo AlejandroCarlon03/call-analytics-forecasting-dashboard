@@ -4,12 +4,16 @@ import type { DashboardPayload } from './data/types';
 import { useHashSelection } from './lib/useHashSelection';
 import type { SelectionDomain } from './lib/selection';
 import type { ImportPreview } from './lib/import/types';
+import { availableAnalytics, runExport } from './lib/export';
+import type { ExportContext, ExportOutcome, ExportRequest } from './lib/export/types';
+import { useChartPalette } from './components/charts/useChartPalette';
 import { AppShell } from './components/shell/AppShell';
 import { DashboardHeader } from './components/shell/DashboardHeader';
 import { DashboardFooter } from './components/shell/DashboardFooter';
 import { SideNav, type NavTab } from './components/shell/SideNav';
 import { Callout, Section } from './components/primitives';
 import { ImportPanel } from './components/import';
+import { ExportCenter } from './components/export/ExportCenter';
 import {
   AnomaliesSection,
   ArrivalsSection,
@@ -137,6 +141,31 @@ export function App() {
 
   const { selection, selectTarget, selectHorizon } = useHashSelection(domain);
 
+  // Resolved from the DOM, not from `useTheme().mode` — see the doc comment on
+  // `useChartPalette` for why the theme-context version is one render stale.
+  const palette = useChartPalette();
+
+  // Export run state. Ordinary `useState`, held here rather than inside
+  // `ExportCenter`, per the same rule the panel's own doc comment states: a
+  // second local copy of "did it work" is the disagreement SESSION_CONTEXT §10
+  // warns about, so the panel reads these straight from props.
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportOutcome, setExportOutcome] = useState<ExportOutcome | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const dismissExport = useCallback(() => {
+    setExportOutcome(null);
+    setExportError(null);
+  }, []);
+
+  // A stale outcome under a rail that has since moved on is the same
+  // fabricated-agreement failure §10 exists to remove, so a target or horizon
+  // change clears it exactly the way an import already clears the payload.
+  useEffect(() => {
+    dismissExport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection.target, selection.horizon]);
+
   // An import replaces the one payload slice through the same setter the
   // initial load uses — never a second "imported payload" slice. A stale
   // `#model=…` fragment self-heals for free: `domain` above is recomputed from
@@ -165,6 +194,47 @@ export function App() {
       };
     });
   }, [payload]);
+
+  // `analysisAvailable` only exists on the 'ready' variant; false while
+  // loading/erroring is the right degrade — there is nothing to export yet.
+  const analysisAvailable = state.status === 'ready' ? state.analysisAvailable : false;
+
+  // The one `ExportContext`, built from state `App` already holds — never a
+  // second read of the payload or a re-parse of the hash. Recomputes on a
+  // payload swap (import), a selection change (rail/horizon) and a theme
+  // change (palette), which are exactly the three things an export's output
+  // can legitimately depend on.
+  const exportContext = useMemo<ExportContext | null>(() => {
+    if (!payload) return null;
+    return { payload, selection, analysisAvailable, palette };
+  }, [payload, selection, analysisAvailable, palette]);
+
+  const exportAnalytics = useMemo(() => {
+    if (!payload) return [];
+    return availableAnalytics({ payload, analysisAvailable });
+  }, [payload, analysisAvailable]);
+
+  const handleExport = useCallback(
+    (request: ExportRequest) => {
+      if (!exportContext) return;
+      setExportBusy(true);
+      setExportError(null);
+      runExport(request, exportContext)
+        .then((outcome) => {
+          setExportOutcome(outcome);
+        })
+        .catch((error: unknown) => {
+          // `runExport` is documented not to throw for per-analytic failures;
+          // a caller that assumed otherwise and was wrong would otherwise show
+          // the reader nothing at all.
+          setExportError(error instanceof Error ? error.message : String(error));
+        })
+        .finally(() => {
+          setExportBusy(false);
+        });
+    },
+    [exportContext],
+  );
 
   if (state.status === 'loading') {
     return (
@@ -227,6 +297,18 @@ export function App() {
             {`Showing the descriptive summary of ${state.activeSourceLabel}. Forecasts, model comparison, feature importance, anomaly detection and staffing scenarios are produced by the Python pipeline — run call_forecast against this export, or import an outputs/dashboard_data.json, to see them.`}
           </Callout>
         )}
+        {/* Export and import are the same class of concern — the reader's data
+            going in and out — so it sits in the same section rather than one
+            of its own. */}
+        <ExportCenter
+          analytics={exportAnalytics}
+          busy={exportBusy}
+          outcome={exportOutcome}
+          error={exportError}
+          selectionLabel={selectedLabel ?? 'All models'}
+          onExport={handleExport}
+          onDismiss={dismissExport}
+        />
       </Section>
       <DataQualitySection
         ingestion={state.payload.ingestion}

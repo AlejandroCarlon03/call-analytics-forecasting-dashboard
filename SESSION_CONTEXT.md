@@ -38,7 +38,12 @@ architecture and §5 the remaining product work.
 **Phase 2 is under way.** PR 10 — dashboard state consistency — is in §10, on
 `feature/dashboard-state-consistency`. PR 11 — navigation UX — is in §11, on
 `feature/navigation-ux`. PR 12 — the CSV import workflow — is in §12, on
-`feature/csv-import`. All three are frontend only.
+`feature/csv-import`. PR 13 — the Export Center — is in §13, on
+`feature/export-center`. All four are frontend only.
+
+**Read §13's last subsection before running a browser check on this machine.**
+There are two clones of this project here and the default preview configuration
+points at the stale one.
 
 **Test suite health.** Two test files currently crash *during collection* on
 this machine for reasons unrelated to any recent change — see §4.
@@ -1751,3 +1756,219 @@ revisiting `src/types/plotly.d.ts`. Trimming the payload remains the wrong move
   anomaly thresholds are zeros. Nothing reads them on that path today, because
   every section that would is omitted. A future section that reads `config`
   unconditionally must check.
+
+---
+
+## 13. Phase 2 — Export Center
+
+**Added by PR 13** (branch `feature/export-center`). Frontend only: no Python
+changed, no payload field added, `SCHEMA_VERSION` untouched. The one non-frontend
+file in the diff is `call_forecast/assets/dashboard_template.html`, the committed
+build artefact, re-synced per §6.
+
+Built by three agents against a contract the lead froze first
+(`src/lib/export/types.ts`), with disjoint file ownership so no file had two
+authors: `lib/export/*` (engine), `components/export/*` (UI), and `App.tsx`
+(integration). Same shape as PR 12, and for the same reason.
+
+### The question that shaped the PR
+
+**An export is a *view* of dashboard state, never a second read of it.** The
+obvious implementation — each format walks the payload its own way — produces a
+second serialization stack that disagrees with the page silently. A CSV covering
+three targets beside a PNG covering one is the §10 failure in a new place.
+
+So the contract mandates reuse rather than suggesting it, and the registry is the
+single pass every format draws from:
+
+```
+payload + Selection + palette
+  -> registry.buildAnalyticExports()      one pass, three views
+       table   -> csv.ts    one file per analytic
+       json    -> json.ts   one file per request
+       figures -> png.ts    one file per figure
+```
+
+Selection is applied by **the same functions the sections use** —
+`isTargetVisible`, `trimDaily`, `trimHorizons`, `selectAnomalies`. Nothing in
+`lib/export/` filters its own way. PNG reuses the pure builders in
+`lib/chart/figures/` verbatim, so "preserve theme" is a property of the
+architecture rather than a thing to remember: the figure handed to
+`Plotly.toImage` is the object the card renders.
+
+### CSV carries raw numbers, and that is the whole point
+
+`lib/format.ts` is *display* formatting — `$1,234.50`, an em dash for null,
+thousands separators. A CSV built from it is not machine-readable. The rows carry
+the raw payload numbers via `String(n)`, never `toFixed`, so precision survives
+byte-identical from JSON to file. `null` stays an empty field, never the string
+`"null"`.
+
+**One CSV per analytic with a leading `target` column**, rather than one file per
+target. That is what "All Models exports aggregate data" means here, and it keeps
+a three-model export to one file without the ZIP the brief excludes. A
+single-model export has the same columns, so a script that reads one reads both.
+`monthlyCost` carries the column too despite only ever being `total_cost` —
+consistent shape beats saving a column.
+
+**Exports carry full data, not the UI's display caps.** `ExplainabilitySection`
+shows 12 features and `AnomaliesSection` the 25 most recent; those are
+pagination, not selection. "Export only visible analytics" is a statement about
+*which* analytics, not about truncating rows to what fits on a screen. The
+importance *chart* still exports its 10 bars, because that is what the builder
+draws.
+
+### PNG, and why `toImage` and not a mounted chart
+
+`Plotly.toImage` takes a `{data, layout}` object directly and renders off-screen,
+so figure export never enters the component tree and needs no ref registry of
+mounted charts. `src/types/plotly.d.ts` gained a third declaration in the same
+minimal hand-written style — `@types/plotly.js` is still refused for the reason
+at the top of that file.
+
+***The exported figure's background is stamped from the palette, and it has to
+be.*** On-screen figures are transparent (`baseLayout` sets `rgba(0,0,0,0)`)
+because the card underneath supplies the background. There is no card in a PNG,
+so an unstamped dark-theme export is a transparent image that reads as
+black-on-black when dropped into a light document. `palette.surface` is exactly
+the card colour, so the file reproduces what the reader saw.
+
+Resolution is `PNG_SCALE: 2` over `PNG_WIDTH: 1000` — 2000px wide, verified. The
+figure's own `layout.height` is reused rather than recomputed: every builder sets
+an explicit height (§8, PR 4/5 — Plotly's autosize paths delete both dimensions),
+and the ranked charts derive theirs from row count.
+
+### Where state lives
+
+Unchanged, and nothing was added. `ExportContext` is
+`{ payload, selection, analysisAvailable, palette }` — all four already held by
+`App`. There is no export store, no snapshot slice, no re-fetch. Selection is
+still the URL fragment with one `useHashSelection` subscriber; **exporting never
+writes to the hash**, which is asserted rather than assumed.
+
+The palette comes from `useChartPalette()` called in `App`, **not** from
+`useTheme().mode` — the one-render-stale trap §8 documents. It is a memo
+dependency, so a theme toggle rebuilds the context and the next PNG carries the
+new palette.
+
+A stale outcome clears on target *and* horizon change. "Exported
+forecasts-call_volume.csv" sitting under a rail that now reads "All models" is
+the same fabricated agreement §10 exists to remove.
+
+### `analysisAvailable` gates the picker
+
+`availableAnalytics()` drops every `requiresAnalysis: true` descriptor when
+PR 12's flag is false, and also drops an analytic whose payload slice is empty
+for this run. So a CSV import offers the arrivals heatmap and nothing else —
+offering "Anomalies" there would export an empty file for a section the reader
+cannot see, which is the fabricated all-clear §12 removed from that very section.
+
+### Accessibility: the live region is not decoration
+
+The success notification is announced from a **persistently rendered**
+`role="status"` region, with the visible `Callout` marked `aria-hidden`. A live
+region inserted into the DOM already carrying its message is not reliably
+announced — assistive technology watches an *existing* region for changes. The
+first implementation mounted the Callout inside its own new region, which
+announced the start of an export and nothing about its finish. Fixed on review.
+Failures live in a separate `role="alert"` and are deliberately absent from the
+status region, so nothing is announced twice.
+
+Escape closes the panel from anywhere inside it *or* from the trigger — the
+handler is on the wrapper, not the panel, because the reader who just reopened
+the panel is focused on the trigger, and a key that works half the time reads as
+broken.
+
+### Stretch goals: two taken, one declined
+
+Multi-select is the primary interaction. The last format used is remembered in
+`sessionStorage` (`FORMAT_MEMORY_KEY`) — session not local, and the *format*
+only: which analytics someone wants is a question about one task, and pre-ticking
+last time's boxes would put files in their downloads folder they did not ask for.
+The read is wrapped in try/catch because a `file://` page has an opaque origin
+where even reading storage can throw. JSON metadata carries `exportedAt`.
+
+PDF and ZIP are not implemented, per the brief. `PDF_TODO` in `types.ts` names
+the real blocker: a PDF means jsPDF or pdf-lib in a bundle already at 1.99 MB
+against a 2 MB advisory. That is a size argument for its own PR.
+
+### Tests: 313 frontend, up from 246
+
+| File | What it pins |
+|---|---|
+| `lib/export/csv`, `json`, `registry` tests (node, DOM-free) | column order and completeness, RFC 4180 quoting, the UTF-8 BOM, null cells, precision byte-identical, horizon trimming, single-model vs All-Models row counts, `analysisAvailable` filtering, the Infinity-horizon envelope |
+| `lib/export/png`, `download`, `runExport` tests (jsdom) | `toImage` arguments, filename format, null figures dropped, partial-failure accumulation |
+| `components/export/ExportCenter.test.tsx` (15) | open/close/Escape + focus return, multi-select, catalogue-ordered request, format disabling and auto-move, disabled states, the announced/visible split for success, partial and error, empty state |
+| `App.test.tsx` (+9) | the model-switch regression, All Models, horizon trimming, the hash left untouched, CSV-import narrowing, stale-outcome clearing, the error path |
+
+58 engine + 15 UI + 9 integration. No existing test was modified or weakened.
+
+### Verified against a live dev server
+
+On the 210-day sample fixture, capturing blobs at `URL.createObjectURL` rather
+than performing downloads:
+
+```
+All models         forecasts CSV   270 rows = 3 targets x 90 days, BOM EF BB BF
+#model=total_cost  forecasts CSV    90 rows, total_cost only
+  ...&horizon=30   forecasts CSV    30 rows, last row 2026-08-28
+#model=total_cost  forecasts PNG   2000x720, PNG signature, #1a1a19 opaque
+#model=total_cost            JSON  meta.exportedAt, selection recorded, daily 30
+```
+
+The **export-after-switching-models** case is the one the brief called out and it
+passes: the second export reflects the second selection, with nothing captured in
+a stale closure. The fragment is unchanged by every export. Header row is
+`target,date,yhat,yhat_lower,yhat_upper,horizon_bucket`, and `yhat` values carry
+full float precision (`4.184523809523809`). No console output at any point; no
+horizontal page overflow (`scrollWidth == clientWidth == 1265`).
+
+PNG theme preservation was checked by decoding the blob to a canvas and reading a
+pixel: `#1a1a19` at full alpha, which is the dark theme's `--surface`. Not a
+transparent PNG, and not black-on-black.
+
+### Verified locally, PR 13
+
+Node 24 · `npm run typecheck` clean · `npm test` **313 passed** (246 before).
+`npm run build` produced `dist/index.html` at **1,716,276 bytes** (1,697,623
+before). `sync_template.py --check` and `gen_tokens.py --check` clean.
+
+***`pytest` ran this time*** — `~/.venvs/callforecast` exists on this checkout,
+unlike PRs 10–12 where CI was the first real backend run. **265 passed**, plus 17
+doctests (1 skipped). The §4 collection crash did not reproduce. Nothing under
+`call_forecast/` changed except the regenerated template, so this is confirmation
+rather than coverage of new Python.
+
+### The bundle advisory is nearly spent
+
+`check_bundle_size.py` projects **1,991,550 of 2,000,000 — 8,450 bytes of
+headroom**, down from 27,103 at PR 12. Under the advisory, so it passes silently,
+but **the next PR of any size will cross it** and print the NOTE. That is the
+two-tier policy working as §12 designed it, not a problem to pre-empt: the real
+limit is 3,000,000, and the lever when it is genuinely approached is still the
+custom Plotly partial bundle. Raising the advisory is a normal part of the PR
+that crosses it.
+
+The projection was confirmed by hand here: substituting the fixture payload into
+the committed template produces a file of exactly 1,991,550 bytes.
+
+### A machine hazard worth recording
+
+**There are two clones of this project on the work machine**, and they are not
+the same:
+
+```
+Documents\GitHub\call-analytics-forecasting-dashboard   origin/main, current
+Desktop\call-forecast                                   stale at c8003cd (PR 10)
+```
+
+The Desktop copy is **9 commits behind** and has no `ImportPanel` at all. It is
+also what `Desktop\.claude\launch.json` points `preview_start` at, so a browser
+verification run from the default config silently exercises a checkout that
+predates PR 11 — which happened during this PR and cost a verification pass. A
+second configuration, `github-clone-dashboard` on port 5175, was added to that
+file to reach the right tree; the launch config uses a **relative** `--prefix`
+because an absolute path containing spaces fails to spawn.
+
+Two clones of one repo both syncing through OneDrive is also a file-lock hazard
+(§6). The Desktop copy was left untouched pending a decision about it.
