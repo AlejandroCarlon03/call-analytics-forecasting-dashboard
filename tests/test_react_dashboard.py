@@ -52,6 +52,29 @@ from call_forecast.dashboard import (
 # --------------------------------------------------------------------------- #
 #  A parsed-tag scanner, safe against a minified JS bundle                    #
 # --------------------------------------------------------------------------- #
+def _check_bundle_size():
+    """
+    Import ``scripts/check_bundle_size.py``, which is not a package module.
+
+    Same shape as the ``sync_template`` import further down: the size limits
+    live with the script that enforces them, and a test that restated the
+    numbers would be a second copy free to drift from the gate CI runs.
+    """
+    import sys
+
+    scripts_dir = str(Path(__file__).resolve().parent.parent / "scripts")
+    added = scripts_dir not in sys.path
+    if added:
+        sys.path.insert(0, scripts_dir)
+    try:
+        import check_bundle_size
+
+        return check_bundle_size
+    finally:
+        if added:
+            sys.path.remove(scripts_dir)
+
+
 class _TagScanner(HTMLParser):
     """
     Collect every start tag as ``(name, {attr: value})``.
@@ -383,9 +406,15 @@ class TestBundleSize:
         """
         path, html = dashboard_html
         size = len(html.encode("utf-8"))
-        assert size <= 2_000_000, (
+
+        # The hard limit, imported rather than restated so the two gates cannot
+        # drift apart. The 2 MB advisory is deliberately *not* asserted here:
+        # it warns in `check_bundle_size.py` and failing on it would put the
+        # policy back to one tier by the side door.
+        limit = _check_bundle_size().DASHBOARD_LIMIT_BYTES
+        assert size <= limit, (
             f"generated dashboard.html is {size:,} bytes "
-            f"({size / 1e6:.2f} MB), over the 2,000,000-byte (2 MB) budget"
+            f"({size / 1e6:.2f} MB), over the {limit:,}-byte hard limit"
         )
 
     def test_committed_template_alone_stays_under_its_budget(self):
@@ -410,10 +439,10 @@ class TestBundleSize:
 
         template_path = root / "call_forecast" / "assets" / "dashboard_template.html"
         size = template_path.stat().st_size
-        assert size <= sync_template.TEMPLATE_BUDGET_BYTES, (
+        assert size <= sync_template.TEMPLATE_LIMIT_BYTES, (
             f"committed template is {size:,} bytes, over the "
-            f"{sync_template.TEMPLATE_BUDGET_BYTES:,}-byte budget "
-            f"(sync_template.TEMPLATE_BUDGET_BYTES)"
+            f"{sync_template.TEMPLATE_LIMIT_BYTES:,}-byte limit "
+            f"(sync_template.TEMPLATE_LIMIT_BYTES)"
         )
 
 

@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { loadPayload, type PayloadSource } from './data/loadPayload';
 import type { DashboardPayload } from './data/types';
 import { useHashSelection } from './lib/useHashSelection';
 import type { SelectionDomain } from './lib/selection';
+import type { ImportPreview } from './lib/import/types';
 import { AppShell } from './components/shell/AppShell';
 import { DashboardHeader } from './components/shell/DashboardHeader';
 import { DashboardFooter } from './components/shell/DashboardFooter';
 import { SideNav, type NavTab } from './components/shell/SideNav';
+import { Callout, Section } from './components/primitives';
+import { ImportPanel } from './components/import';
 import {
   AnomaliesSection,
   ArrivalsSection,
@@ -22,8 +25,48 @@ import styles from './App.module.css';
 
 type State =
   | { status: 'loading' }
-  | { status: 'ready'; payload: DashboardPayload; source: PayloadSource }
+  /**
+   * `activeSourceLabel` is a label only, never a second copy of the payload's
+   * provenance used to drive rendering. It starts as a word derived from
+   * `loadPayload()`'s `PayloadSource` and becomes the imported file's name
+   * after a swap — either way this is the *only* payload slice `App` holds; an
+   * import replaces it in place through this same `setState` rather than
+   * living beside it in a second slice (SESSION_CONTEXT §10).
+   */
+  | {
+      status: 'ready';
+      payload: DashboardPayload;
+      activeSourceLabel: string;
+      /**
+       * Whether a pipeline actually analysed this data.
+       *
+       * ***An empty analysis section and an absent one mean different things,
+       * and the payload cannot tell them apart.*** A run whose detector fired
+       * on nothing and a CSV the detector never saw both arrive here with zero
+       * anomaly rows — but "we checked and found nothing" is a finding, and
+       * "nothing was checked" is not. `AnomaliesSection` has no empty guard, so
+       * it draws a clean volume line either way and the reader cannot tell
+       * which they are looking at.
+       *
+       * The flag is held *beside* the payload rather than added to it. The JSON
+       * contract describes a pipeline run; a field whose meaning is "this is
+       * not one" belongs to the app, not to `serialize.py`.
+       */
+      analysisAvailable: boolean;
+    }
   | { status: 'error'; message: string };
+
+/** How each `loadPayload()` source reads before any import has happened. */
+function initialSourceLabel(source: PayloadSource): string {
+  switch (source) {
+    case 'inline':
+      return 'This run';
+    case 'fetch':
+      return 'dashboard_data.json';
+    case 'fixture':
+      return 'Sample data';
+  }
+}
 
 /** A payload-shaped domain for a run that has not loaded yet. */
 const NO_TARGETS: string[] = [];
@@ -56,7 +99,13 @@ export function App() {
     loadPayload()
       .then(({ payload, source }) => {
         if (cancelled) return;
-        setState({ status: 'ready', payload, source });
+        setState({
+          status: 'ready',
+          payload,
+          activeSourceLabel: initialSourceLabel(source),
+          // All three of `loadPayload()`'s sources are pipeline output.
+          analysisAvailable: true,
+        });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -87,6 +136,23 @@ export function App() {
   );
 
   const { selection, selectTarget, selectHorizon } = useHashSelection(domain);
+
+  // An import replaces the one payload slice through the same setter the
+  // initial load uses — never a second "imported payload" slice. A stale
+  // `#model=…` fragment self-heals for free: `domain` above is recomputed from
+  // the new `payload` reference, so `parseHash` sees the new (possibly empty)
+  // `targets`/`horizons` on the very next render and degrades an unknown
+  // target to "All". Nothing here touches the hash itself.
+  const handleImport = useCallback((payload: DashboardPayload, preview: ImportPreview) => {
+    setState({
+      status: 'ready',
+      payload,
+      activeSourceLabel: preview.fileName,
+      // A `payload` import is an exported pipeline run; a `csv` import is raw
+      // calls this browser aggregated, and nothing analysed those.
+      analysisAvailable: preview.kind === 'payload',
+    });
+  }, []);
 
   const tabs = useMemo<NavTab[]>(() => {
     if (!payload) return [];
@@ -150,6 +216,18 @@ export function App() {
           payload it may find empty, and returns null rather than an empty
           card when it does — the same way the Python dashboard omitted a
           block whose frame was empty. */}
+      <Section title="Data source">
+        <ImportPanel onImport={handleImport} activeSourceLabel={state.activeSourceLabel} />
+        {/* Named, rather than left to be inferred from missing sections. A
+            reader who imports a CSV and sees no forecasts should learn that
+            forecasting is a pipeline step, not wonder whether their file was
+            too small or something failed silently. */}
+        {state.analysisAvailable ? null : (
+          <Callout tone="info">
+            {`Showing the descriptive summary of ${state.activeSourceLabel}. Forecasts, model comparison, feature importance, anomaly detection and staffing scenarios are produced by the Python pipeline — run call_forecast against this export, or import an outputs/dashboard_data.json, to see them.`}
+          </Callout>
+        )}
+      </Section>
       <DataQualitySection
         ingestion={state.payload.ingestion}
         selectedTarget={selectedTarget}
@@ -190,13 +268,17 @@ export function App() {
         targetMeta={state.payload.targetMeta}
         selectedTarget={selectedTarget}
       />
-      <AnomaliesSection
-        anomalies={state.payload.anomalies}
-        config={state.payload.config.anomalies}
-        daily={state.payload.daily}
-        selectedTarget={selectedTarget}
-        selectedLabel={selectedLabel}
-      />
+      {/* Omitted outright when nothing analysed this data. An empty alerts
+          section is a finding; this one would be a fabricated one. */}
+      {state.analysisAvailable ? (
+        <AnomaliesSection
+          anomalies={state.payload.anomalies}
+          config={state.payload.config.anomalies}
+          daily={state.payload.daily}
+          selectedTarget={selectedTarget}
+          selectedLabel={selectedLabel}
+        />
+      ) : null}
       <ScenariosSection scenarios={state.payload.scenarios} />
     </AppShell>
   );

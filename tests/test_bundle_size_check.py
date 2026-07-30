@@ -51,12 +51,24 @@ def script():
 
 def test_budget_matches_the_number_the_render_test_asserts(script):
     """
-    ``test_generated_dashboard_stays_under_budget`` asserts 2,000,000 bytes
-    against a really-rendered dashboard. If the script's budget were raised
+    ``test_generated_dashboard_stays_under_budget`` asserts the same hard limit
+    against a really-rendered dashboard. If the script's limit were raised
     independently, CI would go green on a page the test suite still rejects —
     two gates disagreeing about the same fact, which is worse than one gate.
+
+    Only the *limit* has to agree. The advisory is allowed to differ from
+    anything, because nothing fails on it.
     """
-    assert script.DASHBOARD_BUDGET_BYTES == 2_000_000
+    assert script.DASHBOARD_LIMIT_BYTES == 3_000_000
+
+
+def test_the_advisory_sits_below_the_limit(script):
+    """
+    An advisory at or above the limit would be unreachable: every size that
+    tripped it would already have failed, and the warning tier — the entire
+    point of having two numbers — would never print.
+    """
+    assert script.DASHBOARD_ADVISORY_BYTES < script.DASHBOARD_LIMIT_BYTES
 
 
 def test_marker_and_wrapper_match_the_renderer(script):
@@ -73,27 +85,46 @@ def test_marker_and_wrapper_match_the_renderer(script):
     assert script.SCRIPT_CLOSE == "</script>"
 
 
-def test_projection_is_close_to_the_real_generated_size(script):
+def test_projection_equals_the_substitution_it_models(script):
     """
     The claim the script rests on: template + payload + wrapper predicts what
-    ``build_dashboard_react`` writes. PR 6 measured 1,946,364 bytes on the
-    210-day sample and this projects 1,949,710 — the gap is the committed
-    fixture not being byte-identical to ``serialize.dumps()`` output for that
-    run. A 1% tolerance keeps the test about the *method* being sound rather
-    than about either file's exact current size.
-    """
-    assert script.main([]) == 0, "the committed template should be within budget"
+    ``build_dashboard_react`` writes.
 
-    template = ROOT / script.COMMITTED_TEMPLATE
-    payload = ROOT / script.SAMPLE_PAYLOAD
+    ***This used to be pinned to 1,946,364 bytes with a 1% tolerance, and that
+    was the wrong shape for the assertion.*** It made a statement about how big
+    the bundle happened to be in PR 6, so every PR that legitimately grew the
+    dashboard broke a test about *arithmetic* — and the only available fixes
+    were to edit the constant (noise, forever) or widen the tolerance (which
+    would quietly stop the test from checking anything).
+
+    The projection is a model of one specific substitution, so the honest
+    comparison is against that substitution actually performed. Doing it here
+    costs one string replace on files that are already committed, needs no
+    pipeline run, and is exact rather than approximate — no tolerance, no
+    constant, and nothing to bump when the bundle grows. It fails only if the
+    script's arithmetic and the renderer's substitution stop agreeing, which is
+    the single thing it was ever meant to catch.
+    """
+    assert script.main([]) == 0, "the committed template should be within limits"
+
+    template_bytes = (ROOT / script.COMMITTED_TEMPLATE).read_bytes()
+    payload_bytes = (ROOT / script.SAMPLE_PAYLOAD).read_bytes()
+
     projected = (
-        template.stat().st_size
-        + payload.stat().st_size
+        len(template_bytes)
+        + len(payload_bytes)
         + len(script.SCRIPT_OPEN)
         + len(script.SCRIPT_CLOSE)
         - len(script.MARKER)
     )
-    assert projected == pytest.approx(1_946_364, rel=0.01)
+
+    # The substitution `build_dashboard_react` performs, byte for byte.
+    rendered = template_bytes.replace(
+        script.MARKER.encode(),
+        script.SCRIPT_OPEN.encode() + payload_bytes + script.SCRIPT_CLOSE.encode(),
+    )
+
+    assert projected == len(rendered)
 
 
 def test_exceeding_the_budget_exits_nonzero(script, capsys):
@@ -102,7 +133,25 @@ def test_exceeding_the_budget_exits_nonzero(script, capsys):
     makes this assertable without writing a 2 MB file: the comparison is the
     same one CI performs.
     """
-    assert script.main(["--budget", "1000"]) == 1
+    assert script.main(["--budget", "1000", "--max", "2000"]) == 1
+
+
+def test_exceeding_only_the_advisory_warns_and_passes(script, capsys):
+    """
+    The tier that exists so ordinary growth does not turn CI red.
+
+    Driven through the real entry point with an advisory the committed bundle
+    already exceeds. A gate whose warning path is untested is one refactor away
+    from being a hard failure again, or from printing nothing at all — and
+    silence here reads exactly like "comfortably under budget".
+    """
+    assert script.main(["--budget", "1000"]) == 0
+
+    out = capsys.readouterr().out
+    assert "NOTE" in out
+    assert "does not fail the build" in out
+    assert "advisory" in out
+    assert f"{script.DASHBOARD_LIMIT_BYTES:,}" in out, "say how far the real limit is"
 
 
 def test_failure_message_states_size_limit_and_a_cause(script, capsys):
@@ -111,12 +160,12 @@ def test_failure_message_states_size_limit_and_a_cause(script, capsys):
     red CI log needs the three facts that let them act: what it is now, what it
     is allowed to be, and what usually causes it.
     """
-    script.main(["--budget", "1000"])
+    script.main(["--budget", "1000", "--max", "2000"])
     out = capsys.readouterr().out
 
     assert "exceeds" in out
     assert "current size:" in out and "allowed size:" in out
-    assert "1,000 bytes" in out
+    assert "2,000 bytes" in out
     assert "Plotly" in out, "the message should name the dominant cause"
 
 

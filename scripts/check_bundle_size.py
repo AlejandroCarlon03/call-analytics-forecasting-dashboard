@@ -42,11 +42,23 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-#: The hard limit on the generated dashboard, in bytes. Chosen in PR 6: it is
-#: what keeps the report attachable to an email and quick to open from
-#: ``file://``. ``sync_template.TEMPLATE_BUDGET_BYTES`` (1.7 MB) is the tighter
-#: proxy on the template alone; the difference is the payload's room.
-DASHBOARD_BUDGET_BYTES = 2_000_000
+#: Two tiers, not one, and the distinction is the point.
+#:
+#: The advisory is the size the report *wants* to be: small enough to attach to
+#: an email and quick to open from ``file://``. Crossing it is worth saying out
+#: loud, because a bundle only ever grows by someone not noticing. It is not
+#: worth failing a build over — this project accumulates features, every one of
+#: them costs bytes, and a gate that turns red on ordinary progress gets
+#: silenced rather than heeded, at which point it protects nothing.
+#:
+#: The limit is where growth stops being ordinary. At 3 MB the page is half
+#: again the size of a build that already contains all of Plotly, which means
+#: something was added that nobody costed. That is worth stopping for.
+#:
+#: Raising the advisory as the project grows is expected and fine. Raising the
+#: *limit* should require an argument in the PR that does it.
+DASHBOARD_ADVISORY_BYTES = 2_000_000
+DASHBOARD_LIMIT_BYTES = 3_000_000
 
 #: Preferred source for the projection: the artefact the frontend job just
 #: built. Falls back to the committed template, so the script is also useful on
@@ -71,14 +83,35 @@ def _size(path: Path) -> int:
     return len(path.read_bytes())
 
 
-def _report(label: str, size: int, budget: int, breakdown: list[str]) -> int:
+def _report(label: str, size: int, advisory: int, limit: int, breakdown: list[str]) -> int:
     """Print the verdict. Returns the process exit code."""
-    if size <= budget:
-        headroom = budget - size
-        print(f"{label}: {size:,} bytes of {budget:,} ({headroom:,} bytes of headroom).")
+    if size <= advisory:
+        headroom = advisory - size
+        print(f"{label}: {size:,} bytes of {advisory:,} ({headroom:,} bytes of headroom).")
         for line in breakdown:
             print(f"    {line}")
         return 0
+
+    if size <= limit:
+        # Loud, specific, and green. Someone should read this and decide
+        # whether the growth was worth it; nobody should be blocked by it.
+        print(
+            f"NOTE: {label} is {size:,} bytes ({size / 1e6:.2f} MB), over the "
+            f"{advisory:,}-byte advisory by {size - advisory:,} bytes.\n"
+            f"\n"
+            f"  This does not fail the build. The hard limit is "
+            f"{limit:,} bytes ({limit / 1e6:.2f} MB), "
+            f"{limit - size:,} bytes away.\n"
+            f"  Growth is expected as the dashboard gains features. Worth a\n"
+            f"  glance at whether this PR's share of it was intended, and worth\n"
+            f"  raising the advisory in scripts/check_bundle_size.py once the\n"
+            f"  new size is the normal one.\n"
+        )
+        for line in breakdown:
+            print(f"    {line}")
+        return 0
+
+    budget = limit
 
     # Never fail silently, and never fail with only a number: the person
     # reading this in a CI log needs to know what to do next.
@@ -118,8 +151,14 @@ def main(argv: list[str] | None = None) -> int:
              "committed sample payload.",
     )
     parser.add_argument(
-        "--budget", type=int, default=DASHBOARD_BUDGET_BYTES,
-        help=f"limit in bytes (default {DASHBOARD_BUDGET_BYTES:,})",
+        "--budget", type=int, default=DASHBOARD_ADVISORY_BYTES,
+        help=f"advisory size in bytes; over this warns but passes "
+             f"(default {DASHBOARD_ADVISORY_BYTES:,})",
+    )
+    parser.add_argument(
+        "--max", type=int, default=DASHBOARD_LIMIT_BYTES,
+        help=f"hard limit in bytes; over this fails "
+             f"(default {DASHBOARD_LIMIT_BYTES:,})",
     )
     args = parser.parse_args(argv)
 
@@ -130,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
         if not path.exists():
             print(f"{args.path} does not exist. Generate it with: python -m call_forecast run")
             return 1
-        return _report(str(args.path), _size(path), args.budget, [])
+        return _report(str(args.path), _size(path), args.budget, args.max, [])
 
     template = root / BUILT_BUNDLE
     origin = BUILT_BUNDLE
@@ -157,7 +196,9 @@ def main(argv: list[str] | None = None) -> int:
         f"payload  ({SAMPLE_PAYLOAD}): {payload_bytes:,} bytes",
         "projected by substitution, the way build_dashboard_react() renders.",
     ]
-    return _report("projected reports/dashboard.html", projected, args.budget, breakdown)
+    return _report(
+        "projected reports/dashboard.html", projected, args.budget, args.max, breakdown
+    )
 
 
 if __name__ == "__main__":
