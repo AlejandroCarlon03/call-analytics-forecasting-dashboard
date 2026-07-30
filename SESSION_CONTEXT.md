@@ -37,7 +37,8 @@ architecture and §5 the remaining product work.
 
 **Phase 2 is under way.** PR 10 — dashboard state consistency — is in §10, on
 `feature/dashboard-state-consistency`. PR 11 — navigation UX — is in §11, on
-`feature/navigation-ux`. Both frontend only.
+`feature/navigation-ux`. PR 12 — the CSV import workflow — is in §12, on
+`feature/csv-import`. All three are frontend only.
 
 **Test suite health.** Two test files currently crash *during collection* on
 this machine for reasons unrelated to any recent change — see §4.
@@ -1545,3 +1546,150 @@ Node 24.18.0 · npm 11.16.0.
 under `call_forecast/` changed except the regenerated template, and the two
 stdlib-only gates that cover it both pass, so CI's `backend` and `dashboard`
 jobs are the first real run of the Python suite against this branch.
+
+---
+
+## 12. Phase 2 — CSV Import Workflow
+
+**Added by PR 12** (branch `feature/csv-import`, GitHub #13). Frontend only: no
+Python changed, no payload field added, `SCHEMA_VERSION` untouched. The one
+non-frontend file in the diff is `call_forecast/assets/dashboard_template.html`,
+the committed build artefact, re-synced per §6.
+
+Built by three agents working in parallel against a contract the lead froze
+first (`src/lib/import/types.ts`), with disjoint file ownership so no file had
+two authors: `lib/import/*`, `components/import/*`, and `App.tsx`.
+
+### The question that shaped the PR
+
+**A raw call CSV cannot produce forecasts, and the payload is not a dataset.**
+`DashboardPayload` carries `forecasts` (90 days, calibrated intervals, six
+cross-validated models), `evaluations`, `explanations` (SHAP), `anomalies` and
+`scenarios` (Erlang-C). Producing those from raw call rows *is* the Python
+package. Reimplementing it in TypeScript would be a second forecasting stack
+that silently disagrees with the audited one, and a backend is excluded by the
+offline single-file property.
+
+So the import has **two routes**, and which one ran is visible to the reader:
+
+```
+my_export.csv        -> descriptive sections only, with a note saying why
+dashboard_data.json  -> every section, full fidelity
+```
+
+The CSV route fills `daily`, `hourly` and `ingestion` and leaves the analysis
+maps empty. That needed **no new conditional logic anywhere**: `ForecastsSection`,
+`ModelComparisonSection`, `ExplainabilitySection`, `MonthlyCostSection`,
+`ScenariosSection` and `DataQualitySection` already return `null` when their
+data is absent, because §8's convention has said so since PR 3. The JSON route
+is nearly free — it is the existing contract, re-entering through the front
+door.
+
+### Where state lives
+
+Unchanged. `App` holds one payload slice and an import replaces it **through the
+same `setState` the initial load uses**. There is no second "imported payload"
+slice, no context and no store; a parallel copy would need keeping in step with
+selection, theme and every section, and §10 is the record of what happens when
+two things that should agree are computed twice.
+
+Selection stays in the URL with one `useHashSelection` subscriber.
+**A stale fragment self-heals for free**, which was verified rather than
+assumed: `domain` is a `useMemo` keyed on `payload`, so a swap recomputes
+`targets`/`horizons`, and `parseHash` degrades `#model=total_cost` to "All" when
+the new payload has no such target. Nothing writes to the hash on import.
+
+### `analysisAvailable`, and the section that had to be silenced
+
+***An empty analysis section and an absent one mean different things, and the
+payload cannot tell them apart.*** A pipeline run whose detector fired on
+nothing and a CSV the detector never saw both arrive with zero anomaly rows —
+but "we checked and found nothing" is a finding and "nothing was checked" is
+not. `AnomaliesSection` has **no empty guard**: it drew a clean volume line and
+a zero tally either way, so a CSV import was reporting an all-clear on an
+analysis that never ran.
+
+Found in browser verification, not by a test, and fixed by the lead during
+review. `App`'s ready state carries `analysisAvailable`, true for all three
+`loadPayload()` sources and for a `payload` import, false for a `csv` one. It
+gates the anomalies section and shows a `Callout` naming exactly what is missing
+and how to get it. **The flag is held beside the payload, not added to it** —
+the JSON contract describes a pipeline run, and a field meaning "this is not
+one" belongs to the app, not to `serialize.py`.
+
+### The parser is a port, and it is checked against what it ports
+
+`lib/import/` is a hand port of `ingest.py`'s column handling and the
+descriptive half of `features.build_daily()`: `_COLUMN_ALIASES` verbatim,
+`parse_duration_to_seconds` including the `m:ss` and `h:mm:ss` forms,
+`parse_currency`, and the zero-call-day rule — `call_volume: 0` and
+`total_cost: 0`, but `avg_duration_sec: null`, because the mean of no
+observations is undefined rather than zero.
+
+**`crossValidation.test.ts` is the test that matters.** The committed fixture is
+generated by running the pipeline over `examples/sample_export.csv`; feeding
+that same CSV to the TypeScript path and diffing is a real comparison of two
+implementations over one input. On 1,711 calls across 210 days it reproduces the
+Python output exactly — **0 mismatches over 630 value comparisons**, the same
+168-cell arrivals grid, and the same 9 zero-call days carrying the same nulls.
+If it fails after a `buildFromCsv` change the port has drifted; if it fails
+after the fixture is regenerated, port the Python change rather than relaxing
+the tolerance.
+
+**No new dependency.** The RFC 4180 tokenizer is hand-written — quoted fields,
+`""` escapes, embedded commas and newlines, CRLF, BOM, and a throw on an
+unterminated quote. `package.json` is unchanged, which matters at §12's
+headroom.
+
+One deliberate divergence from Python, documented in `callSchema.ts`: a
+duplicate header is an **error** here, where `ingest.py` silently takes the
+first match. A one-shot browser import has no ingestion report to surface it in
+later.
+
+### Tests: 246 frontend, up from 181
+
+| File | Tests | What it pins |
+|---|---|---|
+| `lib/import/parseCsv.test.ts` + `callSchema.test.ts` + `buildFromCsv.test.ts` + `buildFromPayloadJson.test.ts` | 43 | tokenizer edge cases, aliasing, duplicate headers, every validation path, zero-day insertion, the 168-cell grid, the JSON route's accept/reject/version-warn |
+| `lib/import/crossValidation.test.ts` | 5 | the port against the Python fixture, on the same CSV |
+| `components/import/ImportPanel.test.tsx` | 8 | preview-before-commit, Cancel, errors in `role="alert"`, keyboard activation, drag state, `aria-busy` |
+| `App.test.tsx` | 9 | the swap, stale-fragment self-heal, filtering the new payload, double import, and the four `analysisAvailable` cases |
+
+No existing test was modified or weakened.
+
+### Verified against a live dev server
+
+Both routes, driven through the real file input:
+
+```
+#model=total_cost, sample fixture   10 sections · 6 figures · 4 rail tabs
+  drop my_export.csv                 preview shown, dashboard NOT swapped
+  press Import                       4 sections · 1 figure · 0 rail tabs · note shown
+  drop dashboard_data.json + Import  10 sections · 4 rail tabs · note gone
+  click "Daily cost" on the rail     6 figures, aria-current correct
+```
+
+Preview never commits; "Anomalies and alerts" is absent after the CSV import and
+present after the JSON one; no console output; no horizontal page overflow.
+
+### Verified locally, PR 12
+
+- `npm run typecheck` clean · `npm test` **246 passed** (181 before).
+- `npm run build` -> `dist/index.html` **1,697,623 bytes** (1,675,809 before PR 11).
+- `sync_template.py --check` and `gen_tokens.py --check` clean.
+- `check_bundle_size.py` — projected **1,972,897 of 2,000,000**.
+
+**`pytest` was not run: this checkout has no Python environment**, unchanged
+from PRs 10 and 11. Nothing under `call_forecast/` changed except the
+regenerated template. CI is the first real run.
+
+### Two things left for later
+
+- **`Callout` takes `children: string`**, so the provenance note is one long
+  sentence rather than marked-up prose. Fine for now; a `ReactNode` overload is
+  the change if it ever needs a link.
+- **The CSV route builds a placeholder `ConfigSummary`** — a CSV carries no
+  configuration, so horizons and targets are empty and the business-hours and
+  anomaly thresholds are zeros. Nothing reads them on that path today, because
+  every section that would is omitted. A future section that reads `config`
+  unconditionally must check.
