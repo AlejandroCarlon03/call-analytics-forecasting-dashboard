@@ -163,6 +163,47 @@
   font-weight: 600;
 }
 
+.previewIntro {
+  margin: 0 0 12px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+/* The six-field "is this the right dashboard?" summary. Its own grid rather
+   than reusing `.summary` because these values are longer (a model list, a
+   date range) and want a wider minimum column, and it carries a top divider
+   to read as the header block it is. */
+.metadata {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px 16px;
+  margin: 0 0 16px;
+  padding: 0 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.metadata dt {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink2);
+  margin: 0;
+}
+
+.metadata dd {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--ink);
+  overflow-wrap: break-word;
+}
+
+/* A placeholder standing in for metadata this import genuinely lacks — muted
+   and italic so it reads as "not applicable" rather than as a real value. */
+.metaUnavailable {
+  color: var(--muted);
+  font-style: italic;
+}
+
 .summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
