@@ -98,7 +98,48 @@ export type ImportResult =
   | { ok: false; errors: ImportProblem[] };
 
 /** Extensions the picker offers and the drop zone accepts. */
-export const ACCEPTED_EXTENSIONS = ['.csv', '.json'] as const;
+export const ACCEPTED_EXTENSIONS = ['.csv', '.json', '.xlsx'] as const;
+
+/**
+ * Where a read has got to, for the progress UI.
+ *
+ * These are *observable* stages, not a percentage: reading a 172-row export is
+ * instant and any percentage would be a lie animated to look like work. The UI
+ * names the stage it is in and shows indeterminate motion, which is honest
+ * about a duration nobody can predict from the file size alone.
+ *
+ * `decoding` exists only for `.xlsx` — unzipping a workbook is the one step
+ * here that can take long enough on a large file to need saying out loud.
+ */
+export type ImportStage =
+  /** Handed a file, checking size and extension. */
+  | 'reading'
+  /** Unzipping and walking a workbook. `.xlsx` only. */
+  | 'decoding'
+  /** Tokenising rows and mapping columns. */
+  | 'parsing'
+  /** Aggregating to the daily grain and building the payload. */
+  | 'aggregating'
+  /** A payload is built and the preview is on screen. */
+  | 'previewing'
+  /** The reader pressed Import and the swap has happened. */
+  | 'done';
+
+/**
+ * Human-readable label per stage. Kept here rather than in the component so the
+ * parser and the UI cannot disagree about what a stage is called.
+ */
+export const IMPORT_STAGE_LABELS: Record<ImportStage, string> = {
+  reading: 'Reading file…',
+  decoding: 'Decoding workbook…',
+  parsing: 'Parsing rows…',
+  aggregating: 'Building daily summary…',
+  previewing: 'Ready to import',
+  done: 'Imported',
+};
+
+/** Optional progress sink. A caller that does not care passes nothing. */
+export type ImportProgress = (stage: ImportStage) => void;
 
 /**
  * Refuse absurd files before reading them into memory.

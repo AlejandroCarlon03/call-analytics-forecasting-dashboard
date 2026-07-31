@@ -66,7 +66,17 @@ from pathlib import Path
 #: content and components, which is the cheap kind of growth. The lever if the
 #: *limit* is ever genuinely approached is unchanged and is still the custom
 #: Plotly partial bundle, which is ~85% of the template.
-DASHBOARD_ADVISORY_BYTES = 2_100_000
+#:
+#: Raised again from 2,100,000 by the `.xlsx` import PR, which crossed it by
+#: 43 KB. This time the growth *is* a dependency: `read-excel-file` (browser
+#: build), the smallest mature reader evaluated that reads an `.xlsx`
+#: `ArrayBuffer` fully offline — `xlsx` (SheetJS) was rejected as oversized
+#: and no longer published to the npm registry; `exceljs` measured roughly
+#: 8x larger for read-only use. Measured cost: `frontend/dist/index.html`
+#: went from 1,796,098 to 1,867,549 bytes (+71,451) after `npm install
+#: read-excel-file`, which is the whole story — no reimplementation of
+#: column mapping or the daily rollup was needed, so nothing else grew.
+DASHBOARD_ADVISORY_BYTES = 2_160_000
 DASHBOARD_LIMIT_BYTES = 3_000_000
 
 #: Preferred source for the projection: the artefact the frontend job just

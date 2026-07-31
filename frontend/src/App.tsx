@@ -386,8 +386,19 @@ export function App() {
       onOpenDocs={openDocs}
     />
   );
+  /*
+   * The footer's methodology notes describe a pipeline run, so they are gated on
+   * the same flag as the anomalies section rather than reading `config`
+   * unconditionally — on the import route that config is `buildFromCsv`'s
+   * placeholder and every number in it is a zero nobody chose. See
+   * `DashboardFooter`'s docblock.
+   */
   const footer = (
-    <DashboardFooter config={state.payload.config} generatedAt={state.payload.generatedAt} />
+    <DashboardFooter
+      config={state.payload.config}
+      generatedAt={state.payload.generatedAt}
+      analysisAvailable={analysisAvailable}
+    />
   );
 
   /*

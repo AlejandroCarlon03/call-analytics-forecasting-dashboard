@@ -423,14 +423,27 @@ describe('App export wiring', () => {
 
     await fireImport(csvPayload(), preview('raw_calls.csv'));
 
-    // The import drops the rail (no targets left), which changes `AppShell`'s
-    // layout structurally and remounts the report subtree — including the
-    // panel's own open/closed state, same as any other in-page control would
-    // lose local state across that shape change. Reopen it.
     await waitFor(() =>
       expect(screen.getByText('Active source: raw_calls.csv')).toBeInTheDocument(),
     );
-    await openExportPanel();
+
+    /*
+     * The panel is still open, and it must not need reopening.
+     *
+     * This test used to reopen it here, under a comment explaining that dropping
+     * the rail "changes `AppShell`'s layout structurally and remounts the report
+     * subtree". That remount was a bug being accommodated, not a property worth
+     * keeping: PR 19 made the layout wrapper unconditional so `main` holds its
+     * position in the tree, and the report now survives the rail coming and
+     * going. Asserting the panel stayed open is what holds that — if the
+     * remount ever returns, this fails instead of being worked around again.
+     */
+    // The trigger relabels to "Close export panel" while open, so its presence
+    // under that name *is* the assertion that the panel survived the import.
+    expect(screen.getByRole('button', { name: 'Close export panel' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
 
     // `forecasts` `requiresAnalysis`, so it drops out once the import is a
     // raw CSV; `Arrivals heatmap` does not require analysis and, since the

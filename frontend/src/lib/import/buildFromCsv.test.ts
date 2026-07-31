@@ -37,7 +37,7 @@ describe('buildFromCsv', () => {
     if (!result.ok) expect(result.errors[0]?.message).toMatch(/timestamp/i);
   });
 
-  it('fails when more than 20% of timestamps are unparseable', () => {
+  it('fails when more than 5% of timestamps are unparseable', () => {
     const rows = ['Start Timestamp,Call Duration,Combined Cost'];
     for (let i = 0; i < 10; i += 1) {
       rows.push(i < 3 ? 'garbage,1:00,$1' : `2026-01-0${(i % 9) + 1} 09:00:00,1:00,$1`);
@@ -45,6 +45,105 @@ describe('buildFromCsv', () => {
     const result = buildFromCsv(csv(rows), 'x.csv', 10);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.errors[0]?.message).toMatch(/unparseable timestamp/i);
+  });
+
+  /*
+   * The threshold itself, pinned at the value the Python pipeline uses. The
+   * constant read 0.2 from PR 12 until PR 19 under a comment claiming that was
+   * the Python default; it is 0.05 (`config.py:69`). A boundary test is what
+   * stops that drifting again unnoticed, in either direction.
+   */
+  it('rejects a file 10% of whose timestamps are unparseable, as the pipeline would', () => {
+    const rows = ['Start Timestamp,Call Duration,Combined Cost'];
+    for (let i = 0; i < 20; i += 1) {
+      rows.push(i < 2 ? 'garbage,1:00,$1' : `2026-01-01 09:00:00,1:00,$1`);
+    }
+    const result = buildFromCsv(csv(rows), 'x.csv', 10);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // The message must name the count, the share and the limit, so a reader
+      // can tell "wrong column" from "a couple of bad rows".
+      expect(result.errors[0]?.message).toMatch(/2\/20/);
+      expect(result.errors[0]?.message).toMatch(/5%/);
+    }
+  });
+
+  it('accepts a file below the threshold, dropping the bad rows with a warning', () => {
+    const rows = ['Start Timestamp,Call Duration,Combined Cost'];
+    for (let i = 0; i < 100; i += 1) {
+      rows.push(i < 4 ? 'garbage,1:00,$1' : `2026-01-01 09:00:00,1:00,$1`);
+    }
+    const result = buildFromCsv(csv(rows), 'x.csv', 10);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.payload.ingestion.rows_read).toBe(100);
+      expect(result.payload.ingestion.rows_kept).toBe(96);
+      expect(result.payload.ingestion.dropped['unparseable timestamp']).toBe(4);
+      expect(result.payload.ingestion.warnings.join(' ')).toMatch(/unparseable timestamp/i);
+    }
+  });
+
+  /*
+   * `ingest.py`'s range-check block (lines 522–540), ported in PR 19. A value
+   * failing a range check is nulled, not the row deleted — the call still
+   * happened and still counts toward volume, which is what Python does.
+   */
+  describe('range checks', () => {
+    it('nulls a duration over four hours and counts it, keeping the call', () => {
+      const text = csv([
+        'Start Timestamp,Call Duration,Combined Cost',
+        '2026-01-01 09:00:00,5:00:00,$1.00',
+        '2026-01-01 10:00:00,0:30,$0.10',
+      ]);
+      const result = buildFromCsv(text, 'x.csv', 10);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const day = result.payload.daily[0]!;
+        expect(day.call_volume).toBe(2); // the row survives
+        expect(day.avg_duration_sec).toBe(30); // the 5-hour value does not
+        expect(day.max_duration_sec).toBe(30);
+        expect(result.payload.ingestion.dropped['implausible duration']).toBe(1);
+      }
+    });
+
+    it('nulls a negative duration rather than averaging it in', () => {
+      const text = csv([
+        'Start Timestamp,Call Duration,Combined Cost',
+        '2026-01-01 09:00:00,-60,$0.10',
+        '2026-01-01 10:00:00,0:30,$0.10',
+      ]);
+      const result = buildFromCsv(text, 'x.csv', 10);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        // Without the check this averaged to -15s, below every call in the day.
+        expect(result.payload.daily[0]!.avg_duration_sec).toBe(30);
+        expect(result.payload.ingestion.dropped['negative duration']).toBe(1);
+      }
+    });
+
+    it('zeroes an implausible cost, matching the fill Python applies after nulling', () => {
+      const text = csv([
+        'Start Timestamp,Call Duration,Combined Cost',
+        '2026-01-01 09:00:00,0:30,$500.00',
+        '2026-01-01 10:00:00,0:30,$0.10',
+      ]);
+      const result = buildFromCsv(text, 'x.csv', 10);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.payload.daily[0]!.total_cost).toBeCloseTo(0.1, 6);
+        expect(result.payload.ingestion.dropped['implausible cost']).toBe(1);
+      }
+    });
+
+    it('leaves an ordinary export with an empty dropped map', () => {
+      const text = csv([
+        'Start Timestamp,Call Duration,Combined Cost',
+        '2026-01-01 09:00:00,1:48,$0.50',
+      ]);
+      const result = buildFromCsv(text, 'x.csv', 10);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.payload.ingestion.dropped).toEqual({});
+    });
   });
 
   it('builds a payload with RetellAI-ish headers, inserting zero-call days', () => {

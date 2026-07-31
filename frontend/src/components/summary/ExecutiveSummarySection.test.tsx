@@ -246,14 +246,83 @@ describe('ExecutiveSummarySection', () => {
         payload={imported}
         selectedTarget={null}
         horizon={90}
-        analysisAvailable={false}
+        analysisAvailable
       />,
     );
 
     expect(screen.getByText('1,200')).toBeInTheDocument();
     expect(screen.queryByText('300')).not.toBeInTheDocument();
-    // A CSV nothing analysed must not report an absence of anomalies as a
-    // finding — the `analysisAvailable` distinction, rendered.
-    expect(screen.getByText(/anomaly detection is a pipeline step/)).toBeInTheDocument();
+  });
+
+  /*
+   * The import route, as `App` can actually produce it.
+   *
+   * This block replaces an assertion that used to ride along on the test above
+   * with `analysisAvailable={false}` *and* a payload carrying forecasts — a
+   * combination `App` never constructs, since the flag is false only on the
+   * CSV/XLSX route and that route leaves every analysis map empty. The property
+   * it was reaching for (an unanalysed file must not report an absence of
+   * anomalies as a finding) is still pinned, below, against a payload shaped the
+   * way the parser really emits one.
+   */
+  describe('on the import route', () => {
+    const CSV_PAYLOAD = {
+      ...PAYLOAD,
+      forecasts: {},
+      evaluations: {},
+      explanations: {},
+      targets: [],
+      anomalies: { items: [], byRule: [], notes: [], counts: { critical: 0, warning: 0, info: 0 } },
+    } as unknown as DashboardPayload;
+
+    function renderImported() {
+      return render(
+        <ExecutiveSummarySection
+          payload={CSV_PAYLOAD}
+          selectedTarget={null}
+          horizon={90}
+          analysisAvailable={false}
+        />,
+      );
+    }
+
+    it('keeps its heading, so the summary is not silently missing', () => {
+      renderImported();
+
+      expect(screen.getByRole('heading', { name: 'Executive summary' })).toBeInTheDocument();
+    });
+
+    it('renders no cards at all rather than a grid of unavailable ones', () => {
+      renderImported();
+
+      // The regression: eight em-dash cards at the top of the page read as a
+      // failed import, which is how PR 19 was filed as data loss.
+      expect(screen.queryByRole('list')).not.toBeInTheDocument();
+      expect(screen.queryByRole('listitem')).not.toBeInTheDocument();
+    });
+
+    it('says once why there are no headline figures', () => {
+      renderImported();
+
+      expect(screen.getByText(/No headline figures for an imported file/)).toBeInTheDocument();
+      expect(screen.getByText(/each require a forecast run/)).toBeInTheDocument();
+    });
+
+    it('does not report the absence of anomalies as a finding', () => {
+      const { container } = renderImported();
+
+      // "We checked and found nothing" is a finding; "nothing was checked" is
+      // not. Neither an all-clear nor a zero tally may appear here.
+      expect(container.textContent).not.toMatch(/no anomal/i);
+      expect(container.textContent).not.toMatch(/all clear/i);
+    });
+
+    it('points the reader at the analysis that is present', () => {
+      renderImported();
+
+      // The descriptive sections below are full of their data; the section must
+      // not leave the impression the whole page is empty.
+      expect(screen.getByText(/continues below/)).toBeInTheDocument();
+    });
   });
 });

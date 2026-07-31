@@ -23,6 +23,18 @@
   align-items: start;
 }
 
+/*
+ * No rail: one full-width column, rather than an empty 248px gutter.
+ *
+ * A modifier class rather than an absent wrapper, because `AppShell` has to keep
+ * `main` at a stable position in the element tree — see its docblock for what
+ * went wrong when the wrapper came and went.
+ */
+.layoutNoNav {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
 .main {
   min-width: 0;
 }
