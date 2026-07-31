@@ -19,6 +19,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { DashboardPayload } from './data/types';
 import type { ImportPreview } from './lib/import/types';
+import { saveHistory } from './lib/importHistory';
+import { HISTORY_STORAGE_VERSION } from './lib/importHistory';
 
 vi.mock('plotly.js-cartesian-dist-min', () => ({
   default: {
@@ -247,6 +249,10 @@ afterEach(() => {
   window.location.hash = '';
   downloadBlobMock.mockClear();
   forceExportThrow = null;
+  // An import now records to `localStorage` (PR 18). Without this, a stored
+  // active entry would be restored over the next test's fixture and quietly
+  // change what loads. Cleanup only — no assertion depends on it.
+  window.localStorage.clear();
 });
 
 /** A payload carrying two forecast-bearing targets, for selection tests. */
@@ -794,5 +800,116 @@ describe('App landing gate is one-directional', () => {
 
     await waitFor(() => expect(window.location.hash).toBe(''));
     expect(await screen.findByRole('button', { name: 'fire import' })).toBeInTheDocument();
+  });
+});
+
+/**
+ * Import history (PR 18).
+ *
+ * `App` owns the one history hook and wires it to both `RecentImports` renders.
+ * What belongs here is the contract `App` owns: an import is recorded, a
+ * remembered dataset reopens through the same swap the initial load uses,
+ * removing a row does not unload the view, and a previously open import is
+ * restored on load over the sample fixture but not over a real pipeline run.
+ */
+describe('App import history', () => {
+  it('records an import and lists it in the report, marked current', async () => {
+    loadResult = { payload: fullPayload(), source: 'fixture' };
+    await renderApp();
+    // No history yet, so the in-report switcher is absent.
+    expect(screen.queryByRole('heading', { name: 'Recent imports' })).not.toBeInTheDocument();
+
+    await fireImport(fullPayload({ scenarios: { rows: [{ scenario: 'baseline', current_agents: 10 }], notes: ['imported-note'] } }), preview('calls_a.csv'));
+
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Recent imports' })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole('button', { name: /Reopen calls_a\.csv/ })).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('reopens a previous dataset from the report, restoring its payload exactly', async () => {
+    loadResult = { payload: fullPayload(), source: 'fixture' };
+    await renderApp();
+
+    await fireImport(fullPayload({ scenarios: { rows: [{ scenario: 'baseline', current_agents: 10 }], notes: ['first-note'] } }), preview('first.csv'));
+    await waitFor(() => expect(screen.getByText('first-note')).toBeInTheDocument());
+    await fireImport(fullPayload({ scenarios: { rows: [{ scenario: 'baseline', current_agents: 10 }], notes: ['second-note'] } }), preview('second.csv'));
+    await waitFor(() => expect(screen.getByText('second-note')).toBeInTheDocument());
+    expect(screen.queryByText('first-note')).not.toBeInTheDocument();
+
+    // Reopen the first dataset from the history list.
+    await userEvent.click(screen.getByRole('button', { name: /Reopen first\.csv/ }));
+
+    await waitFor(() => expect(screen.getByText('first-note')).toBeInTheDocument());
+    expect(screen.queryByText('second-note')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Reopen first\.csv/ })).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('removes a dataset from history without unloading the current view', async () => {
+    loadResult = { payload: fullPayload(), source: 'fixture' };
+    await renderApp();
+    await fireImport(fullPayload({ scenarios: { rows: [{ scenario: 'baseline', current_agents: 10 }], notes: ['keep-note'] } }), preview('gone.csv'));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Reopen gone\.csv/ })).toBeInTheDocument());
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Remove gone.csv from recent imports' }),
+    );
+
+    // The row is forgotten, and — being the only one — the section goes with it.
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Reopen gone\.csv/ })).not.toBeInTheDocument());
+    // But what was on screen is still on screen: removing history is not closing.
+    expect(screen.getByText('keep-note')).toBeInTheDocument();
+  });
+
+  it('restores the previously open imported dataset on load, over the sample fixture', async () => {
+    saveHistory({
+      version: HISTORY_STORAGE_VERSION,
+      entries: [
+        {
+          id: 'restored',
+          fileName: 'restored.csv',
+          importedAt: '2026-07-30T00:00:00.000Z',
+          kind: 'csv',
+          fileSize: 10,
+          rowsKept: 5,
+          dateMin: '2026-01-01',
+          dateMax: '2026-01-05',
+          analysisAvailable: false,
+          payload: fullPayload({ scenarios: { rows: [{ scenario: 'baseline', current_agents: 10 }], notes: ['restored-note'] } }),
+        },
+      ],
+      activeId: 'restored',
+    });
+    loadResult = { payload: fullPayload({ scenarios: { rows: [{ scenario: 'baseline', current_agents: 10 }], notes: ['fixture-note'] } }), source: 'fixture' };
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByText('restored-note')).toBeInTheDocument());
+    expect(screen.queryByText('fixture-note')).not.toBeInTheDocument();
+  });
+
+  it('does not restore over a real inline pipeline run', async () => {
+    saveHistory({
+      version: HISTORY_STORAGE_VERSION,
+      entries: [
+        {
+          id: 'restored',
+          fileName: 'restored.csv',
+          importedAt: '2026-07-30T00:00:00.000Z',
+          kind: 'csv',
+          fileSize: 10,
+          rowsKept: 5,
+          dateMin: null,
+          dateMax: null,
+          analysisAvailable: false,
+          payload: fullPayload({ scenarios: { rows: [{ scenario: 'baseline', current_agents: 10 }], notes: ['restored-note'] } }),
+        },
+      ],
+      activeId: 'restored',
+    });
+    loadResult = { payload: fullPayload({ scenarios: { rows: [{ scenario: 'baseline', current_agents: 10 }], notes: ['inline-note'] } }), source: 'inline' };
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByText('inline-note')).toBeInTheDocument());
+    expect(screen.queryByText('restored-note')).not.toBeInTheDocument();
   });
 });

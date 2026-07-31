@@ -52,7 +52,10 @@ the executive summary cards — is in §17, on `feature/executive-summary-cards`
 read it before adding anything that derives a figure from the payload, because
 it is where the line between "Python computes it" and "React selects and
 labels it" is drawn. PR 19 — the import experience — is in §19, on
-`feature/import-experience`.
+`feature/import-experience`. PR 18 — import history — is in §20, on
+`feature/import-history`; it is the client-side `localStorage` history behind
+the landing page's `Recent imports` slot, and read it before touching anything
+that persists browser state or restores a payload on load.
 
 **Read §19 before touching anything that reads `config` or renders an empty
 state.** It is the record of a reported data-loss bug that was not one: the
@@ -2603,13 +2606,9 @@ Node 24.18.0 · Python 3.12.10.
 
 ### Remaining Phase 3 work
 
-- **PR 18 — import history.** `Recent imports` is the placeholder it fills: a
-  heading, a region and an empty state, with no storage, no list and no
-  persistence written yet. Whatever records the history will also need to
-  decide where it lives — nothing in this codebase persists anything but the
-  theme preference (`localStorage`) and the last export format
-  (`sessionStorage`), and a `file://` page has an opaque origin where even
-  reading storage can throw (§13).
+- ~~**PR 18 — import history.**~~ **Done — see §20.** Fills the `Recent imports`
+  placeholder with a `localStorage`-backed, versioned, quota-tolerant history,
+  rendered on both the landing page and in the report.
 - **The human-readable dashboard summary** is a separate piece of work and was
   deliberately not built here.
 - **Still owed, and now five PRs old:** one pass in a real browser for keyboard
@@ -2844,7 +2843,7 @@ Node 24.18.0.
 
 Unchanged from §16, less this item:
 
-- **PR 18 — import history.** The landing page's `Recent imports` placeholder.
+- ~~**PR 18 — import history.**~~ **Done — see §20.**
 - **Import preview, import animations, navigation redesign, the Forecast
   Insights panel and the desktop application** are all still unbuilt and were
   explicitly out of scope here.
@@ -3155,3 +3154,155 @@ Trimming the payload remains the wrong move — it is the contract.
   syncing through OneDrive, still a file-lock hazard.
 - A `Callout` `ReactNode` overload is still the change if a provenance note ever
   needs a link (§12).
+
+---
+
+## 20. Phase 3 — Import History
+
+**Added by PR 18** (branch `feature/import-history`). Frontend only: no Python
+source changed, no payload field added, `SCHEMA_VERSION` untouched. The one
+non-frontend file in the diff is `call_forecast/assets/dashboard_template.html`,
+the committed build artefact, re-synced per §6.
+
+Goal: a reader can reopen a dataset they imported earlier without choosing the
+file again. **Entirely client-side** — a `localStorage` record, no backend, no
+API, which is the constraint the whole import feature already lives under (§12).
+
+### Where it lives, and the prompt contradiction that shaped it
+
+The PR-18 brief said "add a **sidebar** section named Recent Imports". This
+project's sidebar is the model-filter rail (`SideNav`), and it already had a
+`Recent imports` **placeholder on the landing page** reserved for exactly this
+PR (§16, §17). Putting a dataset switcher in the model rail would mix two
+concerns; the landing-page slot is where §16 pointed. Resolved by asking, and
+the answer was **both**: fill the landing placeholder *and* render the same
+shared component in the report's data-source area, so the "currently opened"
+indicator and in-session switching the brief wanted both work. One component,
+two hosts — no duplicated logic.
+
+### The load-bearing decision: entries carry the whole payload
+
+An entry stores the entire `DashboardPayload`, not a handle on the file. A
+browser cannot re-read a dropped file later, and reopening must restore the
+dashboard *exactly as if it had just been imported*, so the payload is the only
+thing that reproduces the view. That is why the history is **capped**
+(`MAX_HISTORY_ENTRIES = 8`) and the writer **evicts under quota pressure** rather
+than assuming the write succeeds — payloads are ~130–275 KB (§8) and
+`localStorage` is a few MB shared with the theme preference.
+
+`analysisAvailable` is stored **beside** the payload in each entry, never on it —
+the same §12/§19 rule: a reopened CSV must stay a CSV (descriptive sections
+only, provenance note shown), and the payload cannot carry "no pipeline ran".
+
+### The three layers
+
+- **`lib/importHistory/types.ts`** — the contract: `ImportHistoryEntry`,
+  `ImportHistoryState`, the storage key (namespaced like the theme key), the
+  version, the cap.
+- **`lib/importHistory/storage.ts`** — every access wrapped in `try/catch`, for
+  the reason `ThemeProvider` wraps the theme preference: a `file://` page with
+  site data disabled *throws* on read (§8). `readHistory` tolerates corrupt
+  JSON, a truncated blob, a bad row (dropped) and a **version mismatch**
+  (discarded whole — the payload shape may have changed). `saveHistory` returns
+  **what actually persisted**: under a `QuotaExceededError` it drops the oldest
+  and retries, and the caller adopts the returned value, so the UI can never
+  claim to remember a dataset that did not survive the write. Quota is matched
+  by name/code, **not** `instanceof DOMException` — the exception crosses realm
+  boundaries (and in tests is synthesised), where `instanceof` fails.
+- **`useImportHistory`** — the one owner, called **once in `App`**, methods
+  passed down as props (the `useHashSelection`/selection shape). `record`,
+  `reopen`, `remove`, `markActive`. Stable callbacks over a `stateRef` mirror,
+  each mutation routed through `saveHistory`. A file's identity is a signature of
+  its observable fields, so **re-importing the same file updates one row** rather
+  than duplicating it (the "duplicate imports" edge case).
+
+### `RecentImports`, one component, two variants
+
+Renders no heading — both hosts supply their own (the landing `<h2>`, the report
+`Section`), so it stays a single reusable body. `variant="landing"` shows the
+rich empty state with a call to action; `variant="panel"` shows one muted line,
+because in the report the import controls are right above it. Each row: file
+name, formatted timestamp (`<time>`, wrapped because `Intl.DateTimeFormat` can
+throw on a bad stored string), a kind label (`CSV` / `Pipeline JSON`), and the
+metadata that exists (rows kept, date span). The reopen control carries an
+explicit `aria-label` (`Reopen <file>`) so it and the adjacent `Remove <file>`
+have **distinct** accessible names. **Selection is never colour alone** (§6): the
+current row has a left band, the word "Current", *and* `aria-current`.
+
+### `App` wiring, and two correctness points
+
+- **Import records to history** through the same `handleImport` that swaps the
+  payload, and marks the new entry current. **Reopen** restores the stored
+  payload through the same `setState` the initial load uses — never a second
+  slice (§10) — and enters the application, so it works identically from the
+  landing page and the report; a stale `#model=…` fragment self-heals exactly as
+  it does after an import. **Remove** only forgets the row; it never unloads
+  what is on screen.
+- **Restore on load is gated on `source === 'fixture'`.** `inline` and `fetch`
+  are a real pipeline run — the authoritative "this run" — and a stale import
+  must not silently replace it. `fixture` means no dataset was supplied, which is
+  exactly when a previously open one should return. *(This is the one product
+  decision worth revisiting: in the shipped single-file, `source` is `inline`, so
+  a reader's import does not survive a restart of that file. Deliberate, and
+  flagged rather than hidden.)*
+- ***The "current" marker must reflect what is displayed.*** When a real run
+  loads over stale history (`inline`/`fetch` with a leftover `activeId`), `App`
+  calls `markActive(null)` — a badge on a row that is not on screen would be the
+  §10 fabricated-agreement failure in a new place.
+
+### Tests: 546 frontend, up from 509
+
+| File | Tests | What it pins |
+|---|---|---|
+| `lib/importHistory/storage.test.ts` | 12 | round-trip, version-mismatch discard, corrupt JSON recovery, one bad row dropped, dangling `activeId` nulled, read-throws, quota eviction reporting what fit, storage-unavailable in-memory fallback |
+| `lib/importHistory/useImportHistory.test.tsx` | 12 | record/newest-first, de-dup on re-import, the cap, reopen returns+marks, remove clears/keeps, `markActive`, init from storage |
+| `components/importHistory/RecentImports.test.tsx` | 11 | name/time/metadata, kind label, omitted parts, current marker, reopen/remove callbacks, list semantics, both empty states |
+| `App.test.tsx` | +6 | records + lists marked current, reopen restores the exact payload, remove without unload, restore over fixture, **not** over inline |
+
+`App.test.tsx`'s `afterEach` now clears `localStorage` (an import records to it);
+cleanup only, no assertion changed. `LandingPage`'s new history props are
+optional, so its existing tests pass unmodified — the empty state and the
+keyboard-order tests still see "No imports yet" and "Import a dataset".
+
+### Verified against a live dev server
+
+Port 5175 (§13's correct clone), on the 210-day sample fixture, driven through
+`javascript_tool` (the pane does not composite screenshots — the §16/§19
+limitation). Seeding two entries and reloading: the landing list renders newest
+first, the active row carries `aria-current="true"`, a "Current" badge and the
+formatted `Jul 31, 2026, 7:12 AM` / `Pipeline JSON` / `172 rows` /
+`2026-05-01 → 2026-07-13` metadata; the second row is a `CSV`. Clicking
+**Reopen calls_may.csv** entered the report, rendered the in-report `Recent
+imports` section, and **moved** the current marker to the reopened row. No
+console output at any step. Restore-on-load was independently confirmed firing
+(a deliberately minimal seed payload took the fixture-restore branch).
+
+### Verified locally, PR 18
+
+Node 24 · Python 3.12.
+
+- `npm run typecheck` — clean.
+- `npm test` — **546 passed** (509 before this PR).
+- `npm run build` → `dist/index.html` at **1,875,282 bytes** (1,867,697 before).
+  No dependency added — `package.json`/`package-lock.json` untouched.
+- `scripts/sync_template.py` re-run and `--check` clean; `gen_tokens.py --check`
+  clean (no `THEME` change — existing tokens only).
+- `scripts/check_bundle_size.py` — projected **2,150,556 of 2,160,000**;
+  headroom 9,444, down from ~17 KB. **Under the advisory, so neither it nor the
+  limits moved.** The lever when a limit is genuinely approached is unchanged: a
+  custom Plotly partial bundle (§8), not a trimmed payload.
+- **`pytest`, targeted** (§18): `test_bundle_size_check.py`, `test_tokens.py`,
+  `test_react_dashboard.py` — **52 passed**. No `call_forecast/` behaviour
+  changed; the only Python-adjacent file is the regenerated template, whose gate
+  is `sync_template.py --check`.
+
+### Left for later
+
+- **Restore over `inline`.** If a reader's import *should* survive a restart of
+  the shipped single-file, the restore gate is the one line to change — with the
+  redeploy-shows-stale-import tradeoff §20 names above weighed first.
+- **`AtAGlanceSection` still reports "Alerts raised: 0" on an imported file**
+  (§19) — untouched here, still wants the `analysisAvailable` gate.
+- **The two clones** (§13) are still both present and still a file-lock hazard.
+- **Headroom is ~9 KB.** The next non-trivial PR crosses the advisory and prints
+  the NOTE, exactly as §12's two-tier policy intends.

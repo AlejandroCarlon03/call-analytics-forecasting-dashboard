@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { loadPayload, type PayloadSource } from './data/loadPayload';
 import type { DashboardPayload } from './data/types';
 import { useHashSelection } from './lib/useHashSelection';
 import type { SelectionDomain } from './lib/selection';
 import type { ImportPreview } from './lib/import/types';
+import { useImportHistory } from './lib/importHistory';
+import { RecentImports } from './components/importHistory';
 import { availableAnalytics, runExport } from './lib/export';
 import type { ExportContext, ExportOutcome, ExportRequest } from './lib/export/types';
 import { useChartPalette } from './components/charts/useChartPalette';
@@ -108,12 +110,58 @@ const NO_HORIZONS: number[] = [];
 export function App() {
   const [state, setState] = useState<State>({ status: 'loading' });
 
+  // The one owner of import history — its methods flow to both `RecentImports`
+  // renders (landing page, report) as props. Read synchronously, so the
+  // mount-time active entry below is the persisted one.
+  const history = useImportHistory();
+  const {
+    record: recordImport,
+    reopen: reopenImport,
+    remove: removeImport,
+    markActive: markActiveImport,
+  } = history;
+
+  /*
+   * The dataset to restore on load, captured once at mount.
+   *
+   * A `useRef` initialised from `history.activeEntry` freezes the value the
+   * synchronous `readHistory()` produced on the first render, so the load
+   * effect below (which runs once, with an empty dependency list) reads the
+   * right thing without listing a changing value as a dependency.
+   */
+  const restoreRef = useRef(history.activeEntry);
+
   useEffect(() => {
     let cancelled = false;
 
     loadPayload()
       .then(({ payload, source }) => {
         if (cancelled) return;
+        /*
+         * Restore the reader's last-open imported dataset — but only over the
+         * committed sample fixture.
+         *
+         * `inline` and `fetch` are a real pipeline run's output: the payload
+         * baked into this file, or served beside it. That is the authoritative
+         * "this run", and a stale import must not silently replace it. `fixture`
+         * means no dataset was supplied at all, which is exactly when a
+         * previously imported one should come back. `activeId` is preserved in
+         * storage, so the restored entry is already marked current.
+         */
+        const restore = restoreRef.current;
+        if (restore && source === 'fixture') {
+          setState({
+            status: 'ready',
+            payload: restore.payload,
+            activeSourceLabel: restore.fileName,
+            analysisAvailable: restore.analysisAvailable,
+          });
+          return;
+        }
+        // A real pipeline run is on screen, not a remembered dataset. Clear any
+        // stale "current" marker so the history list does not badge a row that
+        // is not what is displayed (§10).
+        if (restore) markActiveImport(null);
         setState({
           status: 'ready',
           payload,
@@ -135,7 +183,9 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+    // `markActiveImport` is referentially stable, so this still runs exactly
+    // once — it is listed only to satisfy the exhaustive-deps rule.
+  }, [markActiveImport]);
 
   const payload = state.status === 'ready' ? state.payload : null;
 
@@ -268,16 +318,51 @@ export function App() {
   // the new `payload` reference, so `parseHash` sees the new (possibly empty)
   // `targets`/`horizons` on the very next render and degrades an unknown
   // target to "All". Nothing here touches the hash itself.
-  const handleImport = useCallback((payload: DashboardPayload, preview: ImportPreview) => {
-    setState({
-      status: 'ready',
-      payload,
-      activeSourceLabel: preview.fileName,
+  const handleImport = useCallback(
+    (payload: DashboardPayload, preview: ImportPreview) => {
       // A `payload` import is an exported pipeline run; a `csv` import is raw
       // calls this browser aggregated, and nothing analysed those.
-      analysisAvailable: preview.kind === 'payload',
-    });
-  }, []);
+      const analysisAvailable = preview.kind === 'payload';
+      setState({
+        status: 'ready',
+        payload,
+        activeSourceLabel: preview.fileName,
+        analysisAvailable,
+      });
+      // Remember it so it can be reopened without choosing the file again. The
+      // same `analysisAvailable` is stored, because the payload cannot supply
+      // it and a reopened CSV must stay a CSV (SESSION_CONTEXT §12, §19).
+      recordImport(payload, preview, analysisAvailable);
+    },
+    [recordImport],
+  );
+
+  /*
+   * Reopen a remembered dataset. Restores its stored payload through the same
+   * `setState` an import and the initial load use — never a second slice — and
+   * enters the application, so the action works identically from the landing
+   * page (before entering) and from the report (already in). `reopen` marks the
+   * entry current; the rest is the ordinary swap, and a stale `#model=…`
+   * fragment self-heals exactly as it does after an import.
+   */
+  const handleReopenImport = useCallback(
+    (id: string) => {
+      const entry = reopenImport(id);
+      if (!entry) return;
+      setState({
+        status: 'ready',
+        payload: entry.payload,
+        activeSourceLabel: entry.fileName,
+        analysisAvailable: entry.analysisAvailable,
+      });
+      setEntered(true);
+    },
+    [reopenImport],
+  );
+
+  // Removing a dataset only forgets the history row; it never unloads what is
+  // on screen (see `useImportHistory.remove`).
+  const handleRemoveImport = useCallback((id: string) => removeImport(id), [removeImport]);
 
   const tabs = useMemo<NavTab[]>(() => {
     if (!payload) return [];
@@ -365,6 +450,10 @@ export function App() {
         onEnter={enterDashboard}
         onImport={enterAndImport}
         onOpenDocs={enterAndOpenDocs}
+        recentImports={history.entries}
+        activeImportId={history.activeId}
+        onReopenImport={handleReopenImport}
+        onRemoveImport={handleRemoveImport}
       />
     );
   }
@@ -467,6 +556,23 @@ export function App() {
           onDismiss={dismissExport}
         />
       </Section>
+      {/* Recent imports (PR 18): switch between datasets imported earlier
+          without choosing the file again. The current one carries the "current"
+          marker. Rendered only once there is history to show — on a first load
+          the landing page's own Recent imports section already covers the empty
+          case, and an empty switcher in the report would be noise beside the
+          import panel just above it. */}
+      {history.entries.length > 0 ? (
+        <Section title="Recent imports">
+          <RecentImports
+            variant="panel"
+            entries={history.entries}
+            activeId={history.activeId}
+            onReopen={handleReopenImport}
+            onRemove={handleRemoveImport}
+          />
+        </Section>
+      ) : null}
       {/* Above the analysis, because that is the reading order it exists to
           enable: how many calls, at what cost, on which model and in which
           period, before the reader scrolls into a single figure. It answers to
