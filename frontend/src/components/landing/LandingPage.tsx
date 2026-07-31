@@ -1,5 +1,7 @@
 import { EXTERNAL_LINKS } from '../../config/externalLinks';
 import { ThemeToggle } from '../shell/ThemeToggle';
+import { RecentImports } from '../importHistory';
+import type { ImportHistoryEntry } from '../../lib/importHistory';
 import styles from './LandingPage.module.css';
 
 /**
@@ -20,6 +22,18 @@ interface LandingPageProps {
   onImport: () => void;
   /** Open the in-app documentation. */
   onOpenDocs: () => void;
+  /**
+   * Previously imported datasets, newest first. Optional and empty by default,
+   * so the page renders its honest "no imports yet" state on a first visit and
+   * — as before PR 18 — needs no history wired to work at all.
+   */
+  recentImports?: ImportHistoryEntry[];
+  /** The dataset currently loaded, for the "current" indicator. */
+  activeImportId?: string | null;
+  /** Reopen a remembered dataset. */
+  onReopenImport?: (id: string) => void;
+  /** Forget a remembered dataset. */
+  onRemoveImport?: (id: string) => void;
 }
 
 /**
@@ -69,7 +83,15 @@ const CAPABILITIES = [
  * not a link off it), and one `<a>` for the repository, which genuinely leaves
  * — the same button/anchor split `ExternalLinks` argues for at length.
  */
-export function LandingPage({ onEnter, onImport, onOpenDocs }: LandingPageProps) {
+export function LandingPage({
+  onEnter,
+  onImport,
+  onOpenDocs,
+  recentImports = [],
+  activeImportId = null,
+  onReopenImport,
+  onRemoveImport,
+}: LandingPageProps) {
   const repository = EXTERNAL_LINKS.find((link) => link.id === REPOSITORY_LINK_ID);
 
   return (
@@ -155,26 +177,23 @@ export function LandingPage({ onEnter, onImport, onOpenDocs }: LandingPageProps)
         </section>
 
         {/*
-          The shortcut PR 18 expands, and an honest empty state until it does.
-          There is no import history yet — nothing records one — so this says
-          exactly that rather than showing a plausible-looking list of files
-          nobody imported. The heading and the region are what PR 18 fills; the
-          copy is what it replaces.
+          Recent imports (PR 18). One-click reopening of datasets imported
+          earlier — the whole list, and its honest empty state, live in the
+          shared `RecentImports` body so the report can render the same thing.
+          The heading stays here so this page owns its own hierarchy.
         */}
         <section className={styles.recent} aria-labelledby="landing-recent">
           <h2 className={styles.sectionTitle} id="landing-recent">
             Recent imports
           </h2>
-          <div className={styles.empty}>
-            <p className={styles.emptyTitle}>No imports yet</p>
-            <p className={styles.emptyBody}>
-              Datasets you import will be listed here for one-click reopening. Start with a
-              RetellAI CSV export or a <code>dashboard_data.json</code> produced by the pipeline.
-            </p>
-            <button type="button" className={styles.secondary} onClick={onImport}>
-              Import a dataset
-            </button>
-          </div>
+          <RecentImports
+            variant="landing"
+            entries={recentImports}
+            activeId={activeImportId}
+            onReopen={onReopenImport ?? (() => {})}
+            onRemove={onRemoveImport ?? (() => {})}
+            onImport={onImport}
+          />
         </section>
       </main>
 

@@ -241,39 +241,9 @@
 }
 
 /* ------------------------------------------------------ recent imports --- */
-
-.empty {
-  background: var(--surface);
-  /* Dashed, because this is a placeholder for content that will exist rather
-     than a card that happens to be empty — the border says "not yet" before
-     the copy has to. */
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  padding: 28px;
-  text-align: center;
-}
-
-.emptyTitle {
-  margin: 0 0 8px;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.emptyBody {
-  margin: 0 auto 18px;
-  max-width: 60ch;
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--ink2);
-}
-
-.emptyBody code {
-  font-size: 13px;
-  background: var(--page);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 1px 5px;
-}
+/* The list and its empty state now live in `components/importHistory`
+   (`RecentImports`), shared with the report. The `.recent` section wrapper and
+   its heading stay here; the body is the shared component. */
 
 .footer {
   margin-top: clamp(32px, 6vh, 56px);
