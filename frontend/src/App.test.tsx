@@ -804,6 +804,56 @@ describe('App landing gate is one-directional', () => {
 });
 
 /**
+ * Home navigation — the title.
+ *
+ * The gate above is deliberately one-directional so an *emptying* fragment
+ * cannot eject a reader. The title is the one *chosen* way back out, and the two
+ * must not conflict: clicking it has to both reset `entered` and clear the
+ * fragment, or the latch re-enters on the next render and the reader never
+ * leaves. These tests pin that it works from both the report and the docs, and
+ * that the fragment is gone afterwards.
+ */
+describe('App home navigation', () => {
+  async function renderRaw() {
+    const { App } = await import('./App');
+    const { ThemeProvider } = await import('./theme/ThemeProvider');
+    render(
+      <ThemeProvider>
+        <App />
+      </ThemeProvider>,
+    );
+  }
+
+  it('returns a deep-linked reader to the landing page and clears the fragment', async () => {
+    window.location.hash = '#model=call_volume';
+    loadResult = { payload: twoTargetPayload(), source: 'fixture' };
+    await renderRaw();
+
+    // Past the landing gate on load, in the report.
+    await screen.findByRole('button', { name: 'fire import' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Call Analytics Forecast' }));
+
+    // Back on the welcome screen, and nothing left in the fragment to re-enter.
+    expect(await screen.findByRole('button', { name: 'Open dashboard' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'fire import' })).not.toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe(''));
+  });
+
+  it('returns home from the docs, not merely back to the report', async () => {
+    window.location.hash = '#view=docs';
+    loadResult = { payload: fullPayload(), source: 'fixture' };
+    await renderRaw();
+
+    // The header is present in the docs view too, so its title is reachable.
+    await userEvent.click(await screen.findByRole('button', { name: 'Call Analytics Forecast' }));
+
+    expect(await screen.findByRole('button', { name: 'Open dashboard' })).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe(''));
+  });
+});
+
+/**
  * Import history (PR 18).
  *
  * `App` owns the one history hook and wires it to both `RecentImports` renders.

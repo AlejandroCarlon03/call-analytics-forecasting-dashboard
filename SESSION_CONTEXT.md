@@ -57,8 +57,8 @@ failure mode is silent.
 **Phases.** Phase 1 was the pipeline + the React migration (§8). Phase 2 added
 dashboard state consistency, navigation UX, CSV import, the export center,
 docs, and external links. Phase 3 added the landing experience, executive
-summary cards, import history, the import experience (XLSX), and the import
-preview. §11 is the condensed history of all of it.
+summary cards, import history, the import experience (XLSX), the import
+preview, and navigation polish. §11 is the condensed history of all of it.
 
 ---
 
@@ -1308,6 +1308,47 @@ and Dataset Size are true for both routes. The module degrades a hand-crafted
 JSON missing `config`/`evaluations` to `Unknown` rather than throwing. Rendered as
 a bordered `<dl>` grid above the existing ingestion detail; labels `--ink2`
 (§10), placeholders `--muted` + italic.
+
+### Navigation Polish (`feature/navigation-polish`)
+
+Application discoverability: the title becomes the home control, and the header
+gains a current-view cue. No new dependency, state or component — the selection
+and routing flow is untouched.
+
+***The title is the home control, and it is the one deliberate reverse of the
+landing gate's one-way latch.*** The Landing Experience latches `entered` true
+and nothing else ever unsets it, precisely so an *emptying* fragment cannot eject
+a reader mid-session. A *chosen* home navigation is the exception. It lives in
+`App.navigateHome`, and it works only by doing two things together: reset
+`entered`, **and** clear the fragment. The landing page shows on `!entered &&
+!deepLink`, so leaving a `#model=…`/`#view=docs` behind would keep `deepLink`
+true and the latch would re-enter on the next render. `useHashSelection` grew a
+`clear()` (it owns `window.location`; no component writes it — §8); `navigateHome`
+pairs `clear()` with `setEntered(false)`, and both settle in one batch so
+ordering is irrelevant.
+
+- **The title is a `<button>`, not an `<a href>`** — the §15 rails argument: it
+  changes what this page shows in place rather than navigating to a document, and
+  an anchor to `#…` would *write* the fragment (§11 skip-link collision). It stays
+  inside the `<h1>`, so there is still exactly one top-level heading.
+- ***The accessible name is the visible title, and that ruled out a `title`
+  tooltip.*** A first pass added `title="Return to the landing page"`; the
+  accessibility tree then surfaced *that* as the button's name, which would fail
+  WCAG 2.5.3 (label-in-name) if a browser preferred it over the text content. The
+  attribute was dropped — the hover affordance (underline + `--series1`) carries
+  discoverability, the way a logo-home does. The name is now unambiguously the
+  visible text.
+- **The Docs control gets the rails' current-page cue.** `DashboardHeader` takes
+  `view: 'report' | 'docs'` and marks the Docs button `aria-current="page"` in the
+  docs view — with a weight/border/surface change so the cue is not colour alone
+  (§6). The header is rendered in both the report and docs `AppShell`, so the
+  title is a home control from either.
+
+Verified in a real browser (the correct clone, §10): the title returns to the
+landing page and clears the fragment from both the report and the docs, the latch
+does not re-enter, the Docs cue appears only in the docs view, and a 375px cold
+load has no horizontal overflow. Keyboard activation of the title (Tab, Enter) is
+jsdom-tested — the real-browser keyboard-activation gap (§10) is unchanged.
 
 ---
 

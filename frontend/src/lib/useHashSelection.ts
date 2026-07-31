@@ -80,6 +80,16 @@ export interface HashSelection {
   /** Open the documentation at a page, or return to the report. */
   navigate: (route: DocsRoute) => void;
   /**
+   * Clear the fragment entirely — no target, no horizon, no view.
+   *
+   * This is what "return home" needs: the landing page shows on `!entered &&
+   * !deepLink`, and a lingering `#model=…`/`#view=docs` would keep `deepLink`
+   * true and hold the reader in the report. `App` pairs this with resetting its
+   * own `entered` flag. It lives here, not in `App`, because this hook owns
+   * `window.location` — no component reads or writes it directly (§8).
+   */
+  clear: () => void;
+  /**
    * Whether the fragment names a view the reader asked for.
    *
    * Read from the same snapshot as everything else here, for the same reason
@@ -127,5 +137,7 @@ export function useHashSelection(domain: SelectionDomain): HashSelection {
 
   const deepLink = useMemo(() => isDeepLink(hash), [hash]);
 
-  return { selection, selectTarget, selectHorizon, route, navigate, deepLink };
+  const clear = useCallback(() => writeHash(''), []);
+
+  return { selection, selectTarget, selectHorizon, route, navigate, deepLink, clear };
 }
