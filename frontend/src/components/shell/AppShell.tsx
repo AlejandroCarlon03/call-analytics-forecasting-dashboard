@@ -45,6 +45,24 @@ function skipToReport(event: MouseEvent<HTMLAnchorElement>) {
  * rendering an empty 248px gutter — the same fallback the Python renderer
  * makes when a run produced no forecasts.
  *
+ * ***That fallback is a class on one wrapper, never a second tree shape, and
+ * that distinction is load-bearing.*** Until PR 19 this rendered `main` inside a
+ * layout div when there was a rail and as a direct child when there was not.
+ * React reconciles by position and type, so the rail appearing or disappearing
+ * changed the shape of the tree and **unmounted and remounted the entire
+ * report** — discarding every piece of state inside it.
+ *
+ * A CSV or XLSX import is exactly that transition: the imported payload has no
+ * targets, so `tabs` empties and the rail goes away. `ImportPanel` set its
+ * success state and was destroyed in the same commit, so the confirmation for
+ * the *primary* import route could never be seen — while a `dashboard_data.json`
+ * import, which keeps its targets and therefore its rail, showed it correctly.
+ * Any future state below `main` would have been lost the same way.
+ *
+ * So the wrapper is unconditional and `.layoutNoNav` collapses it to one
+ * column. `main` keeps its position, React updates a `className`, and the report
+ * survives the rail coming and going.
+ *
  * **The skip link is the rail's cost paid back.** A keyboard reader arriving
  * on the page meets the theme toggle and then every model tab before the first
  * card, on every load; the link is the standard way out and is the first thing
@@ -59,26 +77,18 @@ function skipToReport(event: MouseEvent<HTMLAnchorElement>) {
  * the tab sequence; only the link puts focus there.
  */
 export function AppShell({ header, nav, children, footer }: AppShellProps) {
-  const main = (
-    <main id={MAIN_ID} className={styles.main} tabIndex={-1}>
-      {children}
-    </main>
-  );
-
   return (
     <div className={styles.wrap}>
       <a className={styles.skipLink} href={`#${MAIN_ID}`} onClick={skipToReport}>
         Skip to report
       </a>
       {header}
-      {nav ? (
-        <div className={styles.layout}>
-          {nav}
-          {main}
-        </div>
-      ) : (
-        main
-      )}
+      <div className={nav ? styles.layout : `${styles.layout} ${styles.layoutNoNav}`}>
+        {nav}
+        <main id={MAIN_ID} className={styles.main} tabIndex={-1}>
+          {children}
+        </main>
+      </div>
       {footer}
     </div>
   );

@@ -2,21 +2,8 @@ import { useCallback, useId, useRef, useState } from 'react';
 import type { ChangeEvent, DragEvent, KeyboardEvent } from 'react';
 import type { DashboardPayload } from '../../data/types';
 import { readImportFile } from '../../lib/import';
-import type { ImportPreview, ImportProblem, ImportProgress, ImportResult, ImportStage } from '../../lib/import/types';
+import type { ImportPreview, ImportProblem, ImportResult, ImportStage } from '../../lib/import/types';
 import { ACCEPTED_EXTENSIONS, IMPORT_STAGE_LABELS } from '../../lib/import/types';
-
-/**
- * `readImportFile` is contracted (`lib/import/types.ts`) to take an optional
- * progress callback as its second argument, landing alongside `.xlsx`
- * support from a parallel agent. Called through this typed wrapper so the
- * panel builds against the frozen signature even while the current
- * implementation still declares one parameter; drop the cast once the real
- * second parameter lands.
- */
-const readImportFileWithProgress = readImportFile as (
-  file: File,
-  onProgress?: ImportProgress,
-) => Promise<ImportResult>;
 import { Card, Callout, DataTable } from '../primitives';
 import type { Column } from '../primitives';
 import { deriveColumns } from '../../lib/columns';
@@ -86,7 +73,7 @@ export function ImportPanel({ onImport, activeSourceLabel }: ImportPanelProps) {
     dragCounter.current = 0;
     let result: ImportResult;
     try {
-      result = await readImportFileWithProgress(file, setProgressStage);
+      result = await readImportFile(file, setProgressStage);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The file could not be read.';
       setErrors([{ message }]);
@@ -202,7 +189,10 @@ export function ImportPanel({ onImport, activeSourceLabel }: ImportPanelProps) {
         type="file"
         className={styles.hiddenInput}
         accept={ACCEPT_ATTR}
-        aria-label="Choose a CSV or JSON file to import"
+        // Derived from the accepted extensions rather than spelled out, so a
+        // format added to `ACCEPTED_EXTENSIONS` cannot leave the screen-reader
+        // label describing the old set — as "CSV or JSON" did when .xlsx landed.
+        aria-label={`Choose a file to import. Accepts ${ACCEPT_ATTR}.`}
         onChange={onInputChange}
         disabled={busy}
       />

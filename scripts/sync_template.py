@@ -66,7 +66,16 @@ MARKER = "<!--dashboard-data-->"
 #: Raised from 1,750,000 by PR 14 (documentation), which took the template from
 #: 1,716,276 to 1,770,745 — about 54 KB for six pages of prose, ten block
 #: renderers and the docs nav, with no new dependency.
-TEMPLATE_ADVISORY_BYTES = 1_800_000
+#:
+#: Raised again from 1,800,000 by PR 19 (import experience + `.xlsx`), which
+#: crossed it by 68 KB and took the template to 1,867,568. Unlike PR 14 the
+#: growth here *is* a dependency — `read-excel-file`'s browser build, measured
+#: at +71,451 bytes, which is essentially the whole delta: the workbook reader
+#: hands `string[][]` to the existing `buildFromCsv`, so no parsing or rollup
+#: code was duplicated to support the second format. See
+#: ``check_bundle_size.DASHBOARD_ADVISORY_BYTES`` for the same note on the
+#: generated file, and §12 of SESSION_CONTEXT for why these are two tiers.
+TEMPLATE_ADVISORY_BYTES = 1_880_000
 TEMPLATE_LIMIT_BYTES = 2_600_000
 
 

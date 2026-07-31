@@ -65,7 +65,7 @@ describe('ImportPanel', () => {
     expect(screen.getByRole('button', { name: /choose file/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /drag a file here/i })).toBeInTheDocument();
     expect(screen.getByText(/sample dataset/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/choose a csv or json file/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/choose a file to import/i)).toBeInTheDocument();
   });
 
   it('shows the preview after a successful read and does not call onImport', async () => {
@@ -74,7 +74,7 @@ describe('ImportPanel', () => {
     const user = userEvent.setup();
     render(<ImportPanel onImport={onImport} activeSourceLabel="sample dataset" />);
 
-    const input = screen.getByLabelText(/choose a csv or json file/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/choose a file to import/i) as HTMLInputElement;
     await user.upload(input, makeFile());
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Import' })).toBeInTheDocument());
@@ -90,7 +90,7 @@ describe('ImportPanel', () => {
     const user = userEvent.setup();
     render(<ImportPanel onImport={onImport} activeSourceLabel="sample dataset" />);
 
-    const input = screen.getByLabelText(/choose a csv or json file/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/choose a file to import/i) as HTMLInputElement;
     await user.upload(input, makeFile());
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Import' })).toBeInTheDocument());
@@ -106,7 +106,7 @@ describe('ImportPanel', () => {
     const user = userEvent.setup();
     render(<ImportPanel onImport={onImport} activeSourceLabel="sample dataset" />);
 
-    const input = screen.getByLabelText(/choose a csv or json file/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/choose a file to import/i) as HTMLInputElement;
     await user.upload(input, makeFile());
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument());
@@ -121,7 +121,7 @@ describe('ImportPanel', () => {
     const user = userEvent.setup();
     render(<ImportPanel onImport={vi.fn()} activeSourceLabel="sample dataset" />);
 
-    const input = screen.getByLabelText(/choose a csv or json file/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/choose a file to import/i) as HTMLInputElement;
     await user.upload(input, makeFile());
 
     const alert = await screen.findByRole('alert');
@@ -135,7 +135,7 @@ describe('ImportPanel', () => {
     render(<ImportPanel onImport={vi.fn()} activeSourceLabel="sample dataset" />);
 
     const dropZone = screen.getByRole('button', { name: /drag a file here/i });
-    const input = screen.getByLabelText(/choose a csv or json file/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/choose a file to import/i) as HTMLInputElement;
     const clickSpy = vi.spyOn(input, 'click');
 
     dropZone.focus();
@@ -169,7 +169,7 @@ describe('ImportPanel', () => {
     const user = userEvent.setup();
     render(<ImportPanel onImport={vi.fn()} activeSourceLabel="sample dataset" />);
 
-    const input = screen.getByLabelText(/choose a csv or json file/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/choose a file to import/i) as HTMLInputElement;
     await user.upload(input, makeFile());
 
     const dropZone = screen.getByRole('button', { name: /reading file/i });
@@ -191,7 +191,7 @@ describe('ImportPanel', () => {
     const user = userEvent.setup();
     render(<ImportPanel onImport={vi.fn()} activeSourceLabel="sample dataset" />);
 
-    const input = screen.getByLabelText(/choose a csv or json file/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/choose a file to import/i) as HTMLInputElement;
     await user.upload(input, makeFile());
 
     await waitFor(() => expect(screen.getAllByText(/parsing rows/i).length).toBeGreaterThan(0));
@@ -204,7 +204,7 @@ describe('ImportPanel', () => {
     const user = userEvent.setup();
     render(<ImportPanel onImport={vi.fn()} activeSourceLabel="sample dataset" />);
 
-    const input = screen.getByLabelText(/choose a csv or json file/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/choose a file to import/i) as HTMLInputElement;
     await user.upload(input, makeFile());
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Import' })).toBeInTheDocument());
@@ -224,7 +224,7 @@ describe('ImportPanel', () => {
     const user = userEvent.setup();
     render(<ImportPanel onImport={vi.fn()} activeSourceLabel="sample dataset" />);
 
-    const input = screen.getByLabelText(/choose a csv or json file/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/choose a file to import/i) as HTMLInputElement;
     await user.upload(input, makeFile());
 
     const alert = await screen.findByRole('alert');
