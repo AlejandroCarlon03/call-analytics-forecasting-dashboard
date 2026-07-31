@@ -15,7 +15,12 @@ import { readImportFile } from '../../lib/import';
 import type { DashboardPayload } from '../../data/types';
 import type { ImportPreview, ImportProgress, ImportResult } from '../../lib/import/types';
 
-vi.mock('../../lib/import', () => ({ readImportFile: vi.fn() }));
+// Mock only `readImportFile`; `buildPreviewFields` is a pure helper the panel
+// calls directly, so keep the real implementation.
+vi.mock('../../lib/import', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/import')>();
+  return { ...actual, readImportFile: vi.fn() };
+});
 
 const mockedRead = vi.mocked(readImportFile);
 
@@ -38,6 +43,28 @@ const PREVIEW: ImportPreview = {
 
 function okResult(): ImportResult {
   return { ok: true, payload: PAYLOAD, preview: PREVIEW };
+}
+
+/** A pipeline-JSON import, which carries the forecast metadata a CSV cannot. */
+const PAYLOAD_IMPORT = {
+  generatedAt: '2026-07-13T09:41:00',
+  ingestion: { calendar_days: 74 },
+  config: { forecast: { horizons: [30, 60, 90] }, models: { enabled: ['random_forest'] } },
+  evaluations: {
+    call_volume: { leaderboard: [{ model: 'random_forest', label: 'Random Forest' }] },
+  },
+} as unknown as DashboardPayload;
+
+const PAYLOAD_PREVIEW: ImportPreview = {
+  ...PREVIEW,
+  kind: 'payload',
+  fileName: 'dashboard_data.json',
+  dateMin: '2026-05-01',
+  dateMax: '2026-07-13',
+};
+
+function payloadOkResult(): ImportResult {
+  return { ok: true, payload: PAYLOAD_IMPORT, preview: PAYLOAD_PREVIEW };
 }
 
 function errorResult(): ImportResult {
@@ -82,6 +109,47 @@ describe('ImportPanel', () => {
     expect(summary).not.toBeNull();
     expect(within(summary as HTMLElement).getByText('205')).toBeInTheDocument();
     expect(onImport).not.toHaveBeenCalled();
+  });
+
+  it('shows the six-field dashboard summary in the preview, before any ingestion detail', async () => {
+    mockedRead.mockResolvedValue(payloadOkResult());
+    const user = userEvent.setup();
+    render(<ImportPanel onImport={vi.fn()} activeSourceLabel="sample dataset" />);
+
+    const input = screen.getByLabelText(/choose a file to import/i) as HTMLInputElement;
+    await user.upload(input, makeFile());
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Import' })).toBeInTheDocument());
+    for (const label of [
+      'Dashboard Name',
+      'Generation Time',
+      'Forecast Horizon',
+      'Available Models',
+      'Reporting Period',
+      'Dataset Size',
+    ]) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    // Real payload metadata is surfaced, not placeheld.
+    expect(screen.getByText('dashboard_data.json')).toBeInTheDocument();
+    expect(screen.getByText('30, 60, 90 days')).toBeInTheDocument();
+    expect(screen.getByText('Random Forest')).toBeInTheDocument();
+    expect(screen.getByText('01 May 2026 – 13 Jul 2026')).toBeInTheDocument();
+  });
+
+  it('shows honest placeholders for forecast metadata a raw CSV cannot carry', async () => {
+    mockedRead.mockResolvedValue(okResult()); // PREVIEW.kind === 'csv'
+    const user = userEvent.setup();
+    render(<ImportPanel onImport={vi.fn()} activeSourceLabel="sample dataset" />);
+
+    const input = screen.getByLabelText(/choose a file to import/i) as HTMLInputElement;
+    await user.upload(input, makeFile());
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Import' })).toBeInTheDocument());
+    // Generation Time / Forecast Horizon / Available Models each say "not applicable".
+    expect(screen.getAllByText(/not applicable/i).length).toBeGreaterThanOrEqual(3);
+    // But a CSV still has a real reporting period.
+    expect(screen.getByText('01 Jan 2026 – 01 Jul 2026')).toBeInTheDocument();
   });
 
   it('calls onImport exactly once with the payload and preview when Import is pressed', async () => {

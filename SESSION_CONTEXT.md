@@ -55,7 +55,17 @@ labels it" is drawn. PR 19 — the import experience — is in §19, on
 `feature/import-experience`. PR 18 — import history — is in §20, on
 `feature/import-history`; it is the client-side `localStorage` history behind
 the landing page's `Recent imports` slot, and read it before touching anything
-that persists browser state or restores a payload on load.
+that persists browser state or restores a payload on load. PR 20 — the import
+preview — is in §21, on `feature/import-preview`; it adds the six-field
+"is this the right dashboard?" summary to the existing preview step, and read
+it before adding any field that reads `config`/`generatedAt` on an import route.
+
+**On the "PR 19" label.** The prompt that requested the import-preview work
+called it "PR 19", but §19 was already the merged Import Experience
+(`feature/import-experience`, GitHub #19). The preview is a genuinely separate,
+previously-unbuilt feature (listed as unbuilt "import preview" in §17/§19), so
+it was taken as the next milestone — **PR 20, §21, GitHub #21** — rather than
+overwriting §19's record.
 
 **Read §19 before touching anything that reads `config` or renders an empty
 state.** It is the record of a reported data-loss bug that was not one: the
@@ -3306,3 +3316,118 @@ Node 24 · Python 3.12.
 - **The two clones** (§13) are still both present and still a file-lock hazard.
 - **Headroom is ~9 KB.** The next non-trivial PR crosses the advisory and prints
   the NOTE, exactly as §12's two-tier policy intends.
+
+---
+
+## 21. Phase 3 — Import Preview
+
+**Added by PR 20** (branch `feature/import-preview`, GitHub #21). Frontend only:
+no Python source changed, no payload field added, `SCHEMA_VERSION` untouched.
+The one non-frontend file in the diff is
+`call_forecast/assets/dashboard_template.html`, the committed build artefact,
+re-synced per §6. **See the header note on the "PR 19" label** — the prompt
+called this "PR 19", which §19 already used; it was taken as the next milestone
+rather than overwriting that record.
+
+Goal: before an import replaces the loaded dashboard, the reader can confirm it
+is the right one — Dashboard Name, Generation Time, Forecast Horizon, Available
+Models, Reporting Period, Dataset Size.
+
+### The preview step already existed; this is its content, not a new flow
+
+`ImportPanel` has had a `'preview'` stage with Import/Cancel since §12/§19: it
+validates the payload, never partially imports, and preserves the loaded
+dashboard on cancel or failure. That satisfied the *flow* half of the brief
+already. What was missing was the *content* the brief specifies — a
+dashboard-level summary. So this PR **enriches the existing preview** rather
+than inserting a second one, which would have duplicated the confirm/cancel and
+validation logic §19 already got right.
+
+### Five of six fields already lived in the payload
+
+No schema change was needed. `generatedAt`, `config.forecast.horizons`,
+`config.models.enabled` / `evaluations[t].leaderboard[].label`,
+`ingestion.date_min/date_max` and `ingestion.rows_kept/calendar_days` cover five
+of the six requested fields. **Dashboard Name has no dedicated payload field**,
+and by decision it is the imported **file name** — works for CSV and JSON alike,
+zero contract change. If a real title is ever wanted it is an optional payload
+field with a file-name fallback, and that is the only place a schema touch would
+enter.
+
+### `lib/import/previewMetadata.ts` — pure, and the §19 trap is the whole reason it branches on `kind`
+
+`buildPreviewFields(preview, payload)` returns six `PreviewField`s
+(`{label, value, available}`), display-ready and never empty. Pure: preview +
+payload in, array out, no DOM — the tests run without jsdom, the way
+`executiveSummary.ts` does.
+
+***The load-bearing decision is that the forecast-only fields branch on
+`preview.kind`.*** A CSV import carries `config: placeholderConfig()` — every
+number zero — and a `generatedAt` stamped at import time, not generation time.
+Reading those as facts is exactly the §19 `DashboardFooter` bug that published
+"Interval level: 0%" as methodology. So for `kind === 'csv'`, Generation Time /
+Forecast Horizon / Available Models carry an honest *"Not applicable — raw CSV
+has no forecast run"* with `available: false` (rendered muted + italic), never a
+fabricated zero. Reporting Period and Dataset Size are true for both routes — a
+CSV has a date span and rows — so they render for real on either. This is the
+§12/§19 rule ("an absent run and a run of zeroes mean different things") applied
+one more place; the module is defensive against a hand-crafted JSON missing
+`config`/`evaluations` and degrades each field to `Unknown` rather than throwing.
+
+### Rendering
+
+The six fields render as a bordered `<dl>` grid at the top of the preview block,
+above the existing ingestion detail (Rows read/kept, Date span, dropped, column
+map), with an intro line — "Review this dashboard before it replaces
+{activeSourceLabel}." Labels use `--ink2` (AA-clear at 12px, the §17 call), not
+`.summary`'s `--muted`. Placeholders use `--muted` + italic so an "unavailable"
+value reads as not-applicable rather than as data.
+
+### Tests: 564 frontend, up from 546
+
+- `lib/import/previewMetadata.test.ts` (22) — the fixed six-field order, no empty
+  value ever, real payload metadata (generation time, horizons, de-duplicated
+  leaderboard labels, config-key fallback, date range, rows·days·bytes), the CSV
+  placeholder path including an explicit assertion that the zero config and
+  import-time `generatedAt` never surface, the missing/malformed-metadata
+  degradation, and byte formatting across unit boundaries.
+- `components/import/ImportPanel.test.tsx` (+2) — the six fields rendered in the
+  preview for a payload import with real values, and the muted "not applicable"
+  placeholders for a CSV. The existing `vi.mock('../../lib/import', …)` was
+  widened via `importOriginal` so the real `buildPreviewFields` is kept while
+  `readImportFile` stays mocked; no existing assertion changed.
+
+### Verified in a live browser (dev server, port 5183, this clone)
+
+Driven through `javascript_tool` against the real file input (the pane does not
+composite screenshots — the §16/§19/§20 limitation). A pipeline JSON import
+rendered all six fields with real values (`run_july_2026.json` · `13 Jul 2026,
+09:41` · `30, 60, 90 days` · `Random Forest` · `01 May 2026 – 13 Jul 2026` ·
+`172 rows · 74 days`). A raw CSV import rendered the three forecast fields as
+muted "Not applicable" and kept a real Reporting Period and Dataset Size. No
+console errors on either.
+
+### Verified locally, PR 20
+
+- `npm run typecheck` clean · `npm test` **564 passed** (546 before).
+- `npm run build` → `dist/index.html` **1,877,909 bytes** (under the 1,880,000
+  template advisory).
+- `sync_template.py --check` and `gen_tokens.py --check` clean.
+- `check_bundle_size.py` — projected **2,153,183 of 2,160,000**; headroom 6,817,
+  down from ~9 KB. **Still under the advisory**, so neither it nor the limits
+  moved. The lever when a limit is genuinely approached is unchanged: a custom
+  Plotly partial bundle (§8), not a trimmed payload.
+- **`pytest`, targeted** (§18): `test_bundle_size_check.py`, `test_tokens.py`,
+  `test_react_dashboard.py` — **52 passed**. No `call_forecast/` behaviour
+  changed; the only Python-adjacent file is the regenerated template, whose gate
+  is `sync_template.py --check`.
+
+### Left for later
+
+- **`AtAGlanceSection` still reports "Alerts raised: 0" on an imported file**
+  (§19, §20) — untouched here, still wants the `analysisAvailable` gate. Now
+  three-plus PRs old and still the first thing an import-adjacent PR should pick
+  up.
+- **The two clones** (§13) are still both present and still a file-lock hazard.
+- **Headroom is ~6.8 KB.** The next non-trivial PR crosses the advisory and
+  prints the NOTE, exactly as §12's two-tier policy intends.

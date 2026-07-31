@@ -1,7 +1,7 @@
 import { useCallback, useId, useRef, useState } from 'react';
 import type { ChangeEvent, DragEvent, KeyboardEvent } from 'react';
 import type { DashboardPayload } from '../../data/types';
-import { readImportFile } from '../../lib/import';
+import { readImportFile, buildPreviewFields } from '../../lib/import';
 import type { ImportPreview, ImportProblem, ImportResult, ImportStage } from '../../lib/import/types';
 import { ACCEPTED_EXTENSIONS, IMPORT_STAGE_LABELS } from '../../lib/import/types';
 import { Card, Callout, DataTable } from '../primitives';
@@ -175,6 +175,7 @@ export function ImportPanel({ onImport, activeSourceLabel }: ImportPanelProps) {
             ? importedMessage(importedSummary)
             : '';
 
+  const previewFields = staged ? buildPreviewFields(staged.preview, staged.payload) : [];
   const droppedEntries = staged ? Object.entries(staged.preview.dropped) : [];
   const columnMapEntries = staged ? Object.entries(staged.preview.columnMap) : [];
   const sampleColumns: Array<Column<Record<string, string | number | null>>> = staged
@@ -270,6 +271,19 @@ export function ImportPanel({ onImport, activeSourceLabel }: ImportPanelProps) {
 
       {stage === 'preview' && staged && (
         <div className={styles.previewBlock}>
+          <p className={styles.previewIntro}>
+            Review this dashboard before it replaces {activeSourceLabel}.
+          </p>
+
+          <dl className={styles.metadata}>
+            {previewFields.map((field) => (
+              <div key={field.label}>
+                <dt>{field.label}</dt>
+                <dd className={field.available ? undefined : styles.metaUnavailable}>{field.value}</dd>
+              </div>
+            ))}
+          </dl>
+
           <dl className={styles.summary}>
             <div>
               <dt>Rows read</dt>

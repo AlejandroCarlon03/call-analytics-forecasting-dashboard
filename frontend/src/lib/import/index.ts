@@ -21,3 +21,5 @@ export type { ColumnMapResult } from './callSchema';
 export { buildFromCsv } from './buildFromCsv';
 export { buildFromPayloadJson } from './buildFromPayloadJson';
 export { readImportFile } from './readImportFile';
+export { buildPreviewFields } from './previewMetadata';
+export type { PreviewField } from './previewMetadata';
