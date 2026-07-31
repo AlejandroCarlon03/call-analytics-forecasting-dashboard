@@ -200,7 +200,7 @@ export function App() {
     [payload],
   );
 
-  const { selection, selectTarget, selectHorizon, route, navigate, deepLink } =
+  const { selection, selectTarget, selectHorizon, route, navigate, deepLink, clear } =
     useHashSelection(domain);
 
   /*
@@ -246,6 +246,24 @@ export function App() {
   }, [deepLink]);
 
   const enterDashboard = useCallback(() => setEntered(true), []);
+
+  /*
+   * Return to the landing page — the header title is this control.
+   *
+   * It is the one deliberate reverse of the entry latch above. That effect
+   * latches `entered` true and nothing else ever unsets it, precisely so an
+   * emptying fragment cannot eject a reader mid-session. A *chosen* home
+   * navigation is the exception, and it works only if the fragment is cleared
+   * in the same act: the landing page shows on `!entered && !deepLink`, so
+   * leaving a `#model=…`/`#view=docs` behind would keep `deepLink` true and the
+   * latch would re-enter on the next render. `clear()` writes the empty
+   * fragment; nothing then re-enters, because `deepLink` is false. Ordering is
+   * irrelevant — both settle in one batch.
+   */
+  const navigateHome = useCallback(() => {
+    clear();
+    setEntered(false);
+  }, [clear]);
 
   const enterAndImport = useCallback(() => {
     setEntered(true);
@@ -472,6 +490,8 @@ export function App() {
     <DashboardHeader
       ingestion={state.payload.ingestion}
       generatedAt={state.payload.generatedAt}
+      onNavigateHome={navigateHome}
+      view={route.view}
       onOpenDocs={openDocs}
     />
   );
