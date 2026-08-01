@@ -68,15 +68,28 @@
   margin: 4px 0 10px;
 }
 
+/* Select all / Clear / Dismiss. These are secondary in-place actions, not
+   navigation, so they read as quiet text controls rather than raw HTML links:
+   `--ink2` at rest (the accent `--series1` at 13px also fails AA here), with
+   the underline held for `:hover`/`:focus-visible`. The global focus ring in
+   `global.css` carries keyboard focus. */
 .linkButton {
   appearance: none;
   background: none;
   border: none;
   padding: 0;
-  color: var(--series1);
+  color: var(--ink2);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
+  text-decoration: none;
+  text-underline-offset: 2px;
+  transition: color var(--motion-fast) var(--motion-ease);
+}
+
+.linkButton:hover,
+.linkButton:focus-visible {
+  color: var(--ink);
   text-decoration: underline;
 }
 

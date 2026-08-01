@@ -35,6 +35,66 @@
   --motion-rise: 4px;
 }
 
+/*
+ * Elevation and accent tokens.
+ *
+ * These live here, not in the GENERATED `theme/tokens.css` — shadows and
+ * surface tints are compositional (they derive from the audited palette via
+ * `color-mix`), so putting them in the Python `THEME` would mean inventing
+ * palette entries no palette owns, and `gen_tokens.py --check` would fail.
+ *
+ * The whole modern-depth layer is built from *existing* tokens so it stays in
+ * step with the theme automatically:
+ *   --shadow-1/-2   two elevation steps; the ink-toned shadow colour is
+ *                   theme-aware (heavier on the dark page).
+ *   --elevate       a hairline top-light tint mixed into a raised surface so a
+ *                   card reads as lifted, not just outlined.
+ *   --accent-soft   a low-alpha wash of the primary accent hue, for backdrops
+ *                   and card accents — hue without failing text contrast.
+ *   --accent-line   a stronger accent edge for leading rules and top borders.
+ */
+:root {
+  --shadow-color: 11 11 11;
+  --shadow-1:
+    0 1px 2px rgb(var(--shadow-color) / 0.05),
+    0 2px 6px rgb(var(--shadow-color) / 0.05);
+  --shadow-2:
+    0 2px 6px rgb(var(--shadow-color) / 0.06),
+    0 12px 28px rgb(var(--shadow-color) / 0.1);
+  --elevate: color-mix(in srgb, var(--ink) 4%, transparent);
+  --accent-soft: color-mix(in srgb, var(--series1) 8%, transparent);
+  --accent-line: color-mix(in srgb, var(--series1) 55%, transparent);
+}
+
+/* On the dark page the same ink-toned shadow reads as almost nothing, so the
+   shadow colour drops to true black and the alphas climb; the top-light tint
+   lifts toward white instead of ink. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --shadow-color: 0 0 0;
+    --shadow-1:
+      0 1px 2px rgb(var(--shadow-color) / 0.4),
+      0 2px 8px rgb(var(--shadow-color) / 0.35);
+    --shadow-2:
+      0 2px 8px rgb(var(--shadow-color) / 0.45),
+      0 16px 36px rgb(var(--shadow-color) / 0.5);
+    --elevate: color-mix(in srgb, #ffffff 5%, transparent);
+    --accent-soft: color-mix(in srgb, var(--series1) 14%, transparent);
+  }
+}
+
+:root[data-theme='dark'] {
+  --shadow-color: 0 0 0;
+  --shadow-1:
+    0 1px 2px rgb(var(--shadow-color) / 0.4),
+    0 2px 8px rgb(var(--shadow-color) / 0.35);
+  --shadow-2:
+    0 2px 8px rgb(var(--shadow-color) / 0.45),
+    0 16px 36px rgb(var(--shadow-color) / 0.5);
+  --elevate: color-mix(in srgb, #ffffff 5%, transparent);
+  --accent-soft: color-mix(in srgb, var(--series1) 14%, transparent);
+}
+
 html {
   /* The page must never scroll sideways. A wide table or chart is allowed to
      scroll inside its own container, and each of those sets overflow-x itself. */
@@ -52,6 +112,34 @@ body {
   font-size: 15px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * App-wide backdrop. Two low-alpha radial washes — the primary accent from the
+ * top-left, a cooler `--series3` from the top-right — fixed to the viewport so
+ * the page reads as lit rather than flat black/flat white. Both are mixes of
+ * existing series tokens, so the wash tracks the theme and stays well under any
+ * text-contrast concern (it sits behind content on `z-index: -1` and takes no
+ * pointer events). This is the single element that kills the "flat" look
+ * everywhere at once — landing, report and docs all sit on it.
+ */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      62% 52% at 8% -4%,
+      color-mix(in srgb, var(--series1) 10%, transparent),
+      transparent 68%
+    ),
+    radial-gradient(
+      54% 46% at 104% 6%,
+      color-mix(in srgb, var(--series3) 8%, transparent),
+      transparent 70%
+    );
 }
 
 h1,

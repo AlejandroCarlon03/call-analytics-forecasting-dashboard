@@ -8,6 +8,10 @@
   margin-bottom: 16px;
   /* A wide table inside must not widen the card past its grid column. */
   min-width: 0;
+  /* Lifted off the app backdrop with the shared elevation step so report cards
+     read as surfaces, not outlined rectangles on flat page. Both tokens live in
+     `global.css` and track the theme; no palette entry is invented. */
+  box-shadow: var(--shadow-1);
   animation: cardEnter var(--motion-base) var(--motion-ease) both;
 }
 
