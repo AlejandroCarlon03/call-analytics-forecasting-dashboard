@@ -35,6 +35,126 @@
   --motion-rise: 4px;
 }
 
+/*
+ * Elevation and accent tokens.
+ *
+ * These live here, not in the GENERATED `theme/tokens.css` — shadows and
+ * surface tints are compositional (they derive from the audited palette via
+ * `color-mix`), so putting them in the Python `THEME` would mean inventing
+ * palette entries no palette owns, and `gen_tokens.py --check` would fail.
+ *
+ * The whole modern-depth layer is built from *existing* tokens so it stays in
+ * step with the theme automatically:
+ *   --shadow-1/-2   two elevation steps; the ink-toned shadow colour is
+ *                   theme-aware (heavier on the dark page).
+ *   --elevate       a hairline top-light tint mixed into a raised surface so a
+ *                   card reads as lifted, not just outlined.
+ *   --accent-soft   a low-alpha wash of the primary accent hue, for backdrops
+ *                   and card accents — hue without failing text contrast.
+ *   --accent-line   a stronger accent edge for leading rules and top borders.
+ */
+:root {
+  --shadow-color: 11 11 11;
+  --shadow-1:
+    0 1px 2px rgb(var(--shadow-color) / 0.05),
+    0 2px 6px rgb(var(--shadow-color) / 0.05);
+  --shadow-2:
+    0 2px 6px rgb(var(--shadow-color) / 0.06),
+    0 12px 28px rgb(var(--shadow-color) / 0.1);
+  --elevate: color-mix(in srgb, var(--ink) 4%, transparent);
+  --accent-soft: color-mix(in srgb, var(--series1) 8%, transparent);
+  --accent-line: color-mix(in srgb, var(--series1) 55%, transparent);
+
+  /*
+   * Brand accent layer — a warm gold primary and a cool periwinkle secondary,
+   * layered *over* the generated data palette (`theme/tokens.css`) rather than
+   * replacing it. The series hues stay reserved for charts; these two carry the
+   * product's own identity on the chrome (hero, CTAs, chips, icon tiles). Light
+   * values are darkened so text/fills keep AA against the light page.
+   */
+  --gold: #b5810f;
+  --gold-bright: #d69a1e;
+  --on-gold: #1c1405;
+  --violet: #5455d6;
+  --violet-bright: #6f70e6;
+  --on-violet: #ffffff;
+  --violet-tint: color-mix(in srgb, var(--violet) 12%, var(--surface));
+  --violet-edge: color-mix(in srgb, var(--violet) 40%, transparent);
+  --glow-warm: color-mix(in srgb, var(--gold) 20%, transparent);
+  --glow-cool: color-mix(in srgb, var(--violet) 20%, transparent);
+
+  /*
+   * Structural depth. A firmer border for panels/cards that must read as
+   * distinct surfaces (the faint generated `--border` alone let cards melt into
+   * the page), a top sheen mixed into a card's fill so it catches light, and a
+   * faint grid ink for the page texture that replaces the flat backdrop.
+   */
+  --border-strong: color-mix(in srgb, var(--ink) 15%, transparent);
+  --panel-sheen: color-mix(in srgb, var(--ink) 3%, transparent);
+  --grid-ink: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+/* On the dark page the same ink-toned shadow reads as almost nothing, so the
+   shadow colour drops to true black and the alphas climb; the top-light tint
+   lifts toward white instead of ink. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --shadow-color: 0 0 0;
+    --shadow-1:
+      0 1px 2px rgb(var(--shadow-color) / 0.4),
+      0 2px 8px rgb(var(--shadow-color) / 0.35);
+    --shadow-2:
+      0 2px 8px rgb(var(--shadow-color) / 0.45),
+      0 16px 36px rgb(var(--shadow-color) / 0.5);
+    --elevate: color-mix(in srgb, #ffffff 5%, transparent);
+    --accent-soft: color-mix(in srgb, var(--series1) 14%, transparent);
+
+    /* On the near-black page the accents can run bright — this is where the
+       gold/violet identity reads strongest, as in the reference. */
+    --gold: #f4b740;
+    --gold-bright: #ffca5c;
+    --on-gold: #1a1408;
+    --violet: #8b8bf7;
+    --violet-bright: #a3a3ff;
+    --on-violet: #14142b;
+    --violet-tint: color-mix(in srgb, var(--violet) 16%, var(--surface));
+    --violet-edge: color-mix(in srgb, var(--violet) 55%, transparent);
+    --glow-warm: color-mix(in srgb, var(--gold) 24%, transparent);
+    --glow-cool: color-mix(in srgb, var(--violet) 22%, transparent);
+
+    --border-strong: color-mix(in srgb, #ffffff 15%, transparent);
+    --panel-sheen: color-mix(in srgb, #ffffff 6%, transparent);
+    --grid-ink: color-mix(in srgb, #ffffff 5%, transparent);
+  }
+}
+
+:root[data-theme='dark'] {
+  --shadow-color: 0 0 0;
+  --shadow-1:
+    0 1px 2px rgb(var(--shadow-color) / 0.4),
+    0 2px 8px rgb(var(--shadow-color) / 0.35);
+  --shadow-2:
+    0 2px 8px rgb(var(--shadow-color) / 0.45),
+    0 16px 36px rgb(var(--shadow-color) / 0.5);
+  --elevate: color-mix(in srgb, #ffffff 5%, transparent);
+  --accent-soft: color-mix(in srgb, var(--series1) 14%, transparent);
+
+  --gold: #f4b740;
+  --gold-bright: #ffca5c;
+  --on-gold: #1a1408;
+  --violet: #8b8bf7;
+  --violet-bright: #a3a3ff;
+  --on-violet: #14142b;
+  --violet-tint: color-mix(in srgb, var(--violet) 16%, var(--surface));
+  --violet-edge: color-mix(in srgb, var(--violet) 55%, transparent);
+  --glow-warm: color-mix(in srgb, var(--gold) 24%, transparent);
+  --glow-cool: color-mix(in srgb, var(--violet) 22%, transparent);
+
+  --border-strong: color-mix(in srgb, #ffffff 15%, transparent);
+  --panel-sheen: color-mix(in srgb, #ffffff 6%, transparent);
+  --grid-ink: color-mix(in srgb, #ffffff 5%, transparent);
+}
+
 html {
   /* The page must never scroll sideways. A wide table or chart is allowed to
      scroll inside its own container, and each of those sets overflow-x itself. */
@@ -46,12 +166,70 @@ html {
 
 body {
   margin: 0;
-  background: var(--page);
+  /* Not flat: the page colour is lifted by a soft cool wash at the top that
+     fades into the base within the first screenful, so the dashboard sits on a
+     graded field rather than a slab of black. */
+  background-color: var(--page);
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--violet) 6%, transparent) 0%,
+    transparent 620px
+  );
+  background-repeat: no-repeat;
   color: var(--ink);
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 15px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * App-wide backdrop. Two low-alpha radial washes — the primary accent from the
+ * top-left, a cooler `--series3` from the top-right — fixed to the viewport so
+ * the page reads as lit rather than flat black/flat white. Both are mixes of
+ * existing series tokens, so the wash tracks the theme and stays well under any
+ * text-contrast concern (it sits behind content on `z-index: -1` and takes no
+ * pointer events). This is the single element that kills the "flat" look
+ * everywhere at once — landing, report and docs all sit on it.
+ */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      58% 48% at 100% -6%,
+      var(--glow-warm),
+      transparent 66%
+    ),
+    radial-gradient(
+      60% 50% at -8% 4%,
+      var(--glow-cool),
+      transparent 68%
+    );
+}
+
+/*
+ * Faint blueprint grid over the top of the page, masked so it is present in the
+ * hero band and fades out before the fold. It reads as texture, not lines — the
+ * ink is 4–5% of the theme's foreground — and is what stops a dark panel from
+ * sitting on dead-flat black. Fixed and pointer-transparent like the glow, and
+ * painted just above it (`::after` follows `::before`).
+ */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, var(--grid-ink) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-ink) 1px, transparent 1px);
+  background-size: 48px 48px;
+  -webkit-mask-image: radial-gradient(130% 80% at 50% -12%, #000 0%, transparent 62%);
+  mask-image: radial-gradient(130% 80% at 50% -12%, #000 0%, transparent 62%);
 }
 
 h1,

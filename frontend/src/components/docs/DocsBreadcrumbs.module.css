@@ -27,6 +27,9 @@
   color: var(--muted);
 }
 
+/* The "Documentation" crumb is an in-place exit control, not a link off the
+   page, so it reads as quiet text: no underline at rest, and the underline plus
+   colour shift held for `:hover`/`:focus-visible`. */
 .crumbButton {
   appearance: none;
   background: transparent;
@@ -35,12 +38,15 @@
   font: inherit;
   color: var(--muted);
   cursor: pointer;
-  text-decoration: underline;
+  text-decoration: none;
   text-underline-offset: 2px;
+  transition: color var(--motion-fast) var(--motion-ease);
 }
 
-.crumbButton:hover {
+.crumbButton:hover,
+.crumbButton:focus-visible {
   color: var(--ink);
+  text-decoration: underline;
 }
 
 .current {

@@ -1,15 +1,38 @@
 .sidenav {
   position: sticky;
   top: 24px;
+  /* The rail is its own panel now — a raised surface with the firm border — so
+     it reads as a distinct region beside the report rather than free-floating
+     text in the gutter. */
+  background:
+    linear-gradient(180deg, var(--panel-sheen), transparent 180px),
+    var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  padding: 16px 12px;
+  box-shadow: var(--shadow-1);
 }
 
 .title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
   font-weight: 600;
-  margin: 0 0 10px 12px;
+  margin: 0 0 10px 4px;
+}
+
+/* A short gold rule leading the rail's section label, the same accent the
+   report's section headings carry — decorative, so it takes the full hue. */
+.title::before {
+  content: '';
+  width: 14px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--gold);
 }
 
 .tabs {
@@ -42,7 +65,7 @@
    * `background: var(--surface)` would silently erase the bar.
    */
   background-color: transparent;
-  background-image: linear-gradient(var(--series1), var(--series1));
+  background-image: linear-gradient(var(--violet), var(--violet));
   background-repeat: no-repeat;
   background-position: left center;
   background-size: 3px 0%;
@@ -102,9 +125,9 @@
  * makes its accessible name unambiguous.
  */
 .tab[aria-current='page'] {
-  background-color: var(--surface);
+  background-color: var(--violet-tint);
   background-size: 3px calc(100% - 12px);
-  border-color: var(--border);
+  border-color: var(--violet-edge);
   color: var(--ink);
   font-weight: 600;
 }

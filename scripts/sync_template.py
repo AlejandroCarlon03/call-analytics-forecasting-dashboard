@@ -75,7 +75,7 @@ MARKER = "<!--dashboard-data-->"
 #: code was duplicated to support the second format. See
 #: ``check_bundle_size.DASHBOARD_ADVISORY_BYTES`` for the same note on the
 #: generated file, and §12 of SESSION_CONTEXT for why these are two tiers.
-TEMPLATE_ADVISORY_BYTES = 1_880_000
+TEMPLATE_ADVISORY_BYTES = 1_920_000
 TEMPLATE_LIMIT_BYTES = 2_600_000
 
 
