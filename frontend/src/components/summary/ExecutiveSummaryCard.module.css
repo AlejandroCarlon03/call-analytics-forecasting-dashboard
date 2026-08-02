@@ -13,10 +13,16 @@
  */
 
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  /* Same raised-panel treatment as `Card`: a top sheen over the surface and the
+     firmer `--border-strong` edge, so the eight tiles read as distinct chips on
+     the graded page instead of near-invisible outlines. */
+  background:
+    linear-gradient(180deg, var(--panel-sheen), transparent 120px),
+    var(--surface);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   padding: 18px;
+  box-shadow: var(--shadow-1);
   /* Load-bearing in a grid: without it a long detail line makes the track wider
      than its share and the row stops being even. */
   min-width: 0;
@@ -25,6 +31,16 @@
   /* Equal heights across a row, with the detail line pinned to the bottom, so
      the eight numbers sit on one baseline instead of stepping. */
   height: 100%;
+  transition:
+    border-color var(--motion-fast) var(--motion-ease),
+    box-shadow var(--motion-fast) var(--motion-ease),
+    transform var(--motion-fast) var(--motion-ease);
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-2);
+  border-color: var(--violet-edge);
 }
 
 /*

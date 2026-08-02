@@ -1,8 +1,13 @@
 /* Ported from the `.card` rules in dashboard.py. */
 
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  /* A top sheen mixed over the surface gives the card a lit edge, so it reads
+     as a raised panel rather than a flat rectangle. `--border-strong` is the
+     firmer edge that keeps the panels distinct from the graded page. */
+  background:
+    linear-gradient(180deg, var(--panel-sheen), transparent 140px),
+    var(--surface);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   padding: 18px 18px 12px;
   margin-bottom: 16px;

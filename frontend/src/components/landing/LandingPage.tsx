@@ -43,21 +43,36 @@ interface LandingPageProps {
  * reader who has not chosen a dataset yet, which is the fabricated agreement
  * §10 exists to remove, arriving before the dashboard rather than inside it.
  */
+/**
+ * The capability icons are decorative (`aria-hidden`): each capability already
+ * has a visible `<h3>` title that names it, so the glyph adds no information a
+ * screen reader needs. They are simple `currentColor` strokes so the icon takes
+ * the tile's accent colour with no per-icon fill to keep in step.
+ */
 const CAPABILITIES = [
   {
     id: 'forecast',
     title: 'Forecast call volume',
     body: 'Six cross-validated models compete on every target; the winner is refit on all history and projected 30, 60 and 90 days out with calibrated intervals.',
+    icon: (
+      <path d="M3 16.5l5.5-5.5 3.5 3.5L21 5M21 5h-4.5M21 5v4.5" />
+    ),
   },
   {
     id: 'analyse',
     title: 'Analyse operational trends',
     body: 'Daily and hourly arrival patterns, data-quality coverage, cost rollups and Erlang-C staffing scenarios, each with a table beside the chart.',
+    icon: (
+      <path d="M4 20V13M9 20V7M14 20v-4M19 20V10M3 20h18" />
+    ),
   },
   {
     id: 'explain',
     title: 'Understand the model',
     body: 'Feature importance, a model leaderboard and anomaly alerts explain why a number is what it is, rather than asking you to take it on trust.',
+    icon: (
+      <path d="M9.5 18h5M10 21h4M12 3a6 6 0 0 0-3.7 10.7c.5.4.7.8.8 1.3h5.8c.1-.5.3-.9.8-1.3A6 6 0 0 0 12 3z" />
+    ),
   },
 ];
 
@@ -97,7 +112,17 @@ export function LandingPage({
   return (
     <div className={styles.page}>
       <div className={styles.topbar}>
-        <span className={styles.brand}>Call Analytics Forecast</span>
+        <span className={styles.brand}>
+          {/* Decorative brand mark — the wordmark beside it carries the name, so
+              the tile is aria-hidden and adds no duplicate label. */}
+          <span className={styles.brandMark} aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
+              strokeLinecap="round" strokeLinejoin="round" focusable={false}>
+              <path d="M4 16.5l4.5-4.5 3 3L20 7" />
+            </svg>
+          </span>
+          Call Analytics Forecast
+        </span>
         <ThemeToggle />
       </div>
 
@@ -107,7 +132,9 @@ export function LandingPage({
           landmark rather than on whatever the browser last remembered. */}
       <main className={styles.main} id="landing" tabIndex={-1}>
         <section className={styles.hero} aria-labelledby="landing-title">
-          <p className={styles.eyebrow}>Predictive call analytics</p>
+          <p className={styles.eyebrow}>
+            <span className={styles.chip}>Predictive call analytics</span>
+          </p>
           <h1 className={styles.title} id="landing-title">
             Call Analytics Forecast
           </h1>
@@ -119,6 +146,11 @@ export function LandingPage({
           <div className={styles.actions}>
             <button type="button" className={styles.primary} onClick={onImport}>
               Import Dashboard
+              {/* Decorative arrow — aria-hidden so the button's accessible name
+                  stays exactly "Import Dashboard". */}
+              <span className={styles.arrow} aria-hidden="true">
+                →
+              </span>
             </button>
             <button type="button" className={styles.secondary} onClick={onEnter}>
               Open dashboard
@@ -169,6 +201,19 @@ export function LandingPage({
           <ul className={styles.capabilityList}>
             {CAPABILITIES.map((capability) => (
               <li key={capability.id} className={styles.capability}>
+                <span className={styles.capabilityIcon} aria-hidden="true">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.9"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    focusable={false}
+                  >
+                    {capability.icon}
+                  </svg>
+                </span>
                 <h3 className={styles.capabilityTitle}>{capability.title}</h3>
                 <p className={styles.capabilityBody}>{capability.body}</p>
               </li>

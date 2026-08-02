@@ -1,16 +1,16 @@
 /*
  * The landing page.
  *
- * Every colour, radius and duration here is an existing token — the palette is
- * audited and generated from `call_forecast.dashboard.THEME` (§8), and the
- * motion tokens live in `global.css` (§11). No literal, no new token, no
- * `THEME` change, so `gen_tokens.py --check` stays clean.
+ * Radii and motion are existing tokens (motion in `global.css`, `--radius` in
+ * the generated `theme/tokens.css`). Colour comes from two layers: the audited
+ * data palette (`--surface`, `--ink`, `--muted`…) for text and surfaces, and
+ * the brand accent layer added in `global.css` (`--gold`, `--violet` and their
+ * tints/glows) for the chrome — CTA, chip, icon tiles and glows. No raw hex
+ * lives here, so `gen_tokens.py --check` stays clean and everything tracks the
+ * theme.
  *
- * The layout is fluid rather than breakpoint-driven wherever it can be:
- * `clamp()` on the type scale and `auto-fit` grids mean the page works at
- * every width between 320px and the token `--maxw`, not only at the three the
- * brief names. Two media queries handle the things fluid rules cannot — the
- * hero's measure and the action row's direction on a phone.
+ * The layout stays fluid: `clamp()` on the type scale and `auto-fit` grids mean
+ * the page works at every width between 320px and `--maxw`.
  */
 
 .page {
@@ -32,62 +32,86 @@
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--ink2);
+}
+
+/* Gold brand mark — a filled tile with the on-gold glyph, the same warm
+   primary the CTA uses, so the identity is set the moment the page loads. */
+.brandMark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(145deg, var(--gold-bright), var(--gold));
+  color: var(--on-gold);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--gold) 35%, transparent);
+}
+
+.brandMark svg {
+  width: 17px;
+  height: 17px;
 }
 
 .main {
   flex: 1 1 auto;
-  /* The focus ring on a `-1` main would otherwise be drawn tight against the
-     content; the outline offset in global.css handles the rest. */
   outline-offset: 4px;
 }
 
 /* ---------------------------------------------------------------- hero --- */
 
 .hero {
-  padding: clamp(40px, 9vh, 88px) 0 clamp(32px, 6vh, 56px);
-  max-width: 72ch;
+  position: relative;
+  padding: clamp(44px, 10vh, 96px) 0 clamp(32px, 6vh, 56px);
+  max-width: 74ch;
   animation: landingEnter var(--motion-base) var(--motion-ease) both;
 }
 
 .eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0 0 12px;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  /* `--ink2`, not `--series1`, for the *text*. The series hues are tuned to sit
-     on a chart's plot area against a line, not to carry 13px text on the page
-     background — `--series1` measures 4.0:1 there in the light palette, under
-     AA. The hue arrives as the decorative rule below, where contrast does not
-     apply, so the eyebrow gets its accent without a failing text colour. */
-  color: var(--ink2);
+  margin: 0 0 20px;
 }
 
-/* A short accent rule leading the eyebrow — decorative, so it may carry the
-   full `--series1` hue the text may not. */
-.eyebrow::before {
+/* Eyebrow chip — a violet-tinted pill with a hairline violet edge, the
+   reference's "INTRODUCING" label. The hue lives on the fill and border; the
+   text is `--violet` on the dark tint (or the darker light-mode violet on the
+   pale tint), which clears AA in both themes. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--violet-tint);
+  border: 1px solid var(--violet-edge);
+  color: var(--violet-bright);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.chip::before {
   content: '';
-  width: 28px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--accent-line);
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
 }
 
 .title {
-  margin: 0 0 16px;
-  /* Fluid rather than stepped: the hero is the one place on the page where a
-     fixed size either overflows a 320px phone or looks lost at 1440px. */
-  font-size: clamp(32px, 5.5vw, 52px);
-  line-height: 1.1;
-  letter-spacing: -0.02em;
+  margin: 0 0 18px;
+  font-size: clamp(36px, 6vw, 60px);
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+  font-weight: 700;
 }
 
 .lead {
@@ -95,66 +119,72 @@
   font-size: clamp(16px, 1.4vw, 19px);
   line-height: 1.6;
   color: var(--ink2);
-  max-width: 62ch;
+  max-width: 60ch;
 }
 
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 32px;
+  gap: 14px;
+  margin-top: 34px;
 }
 
 .primary,
 .secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font: inherit;
   font-weight: 600;
   font-size: 15px;
-  border-radius: 8px;
-  padding: 11px 20px;
+  border-radius: 10px;
+  padding: 12px 22px;
   cursor: pointer;
-  /* Colour and shadow transition — box-shadow does not reflow, so it is safe
-     under the §11 "no box dimension may animate" rule the rail set. */
+  /* Colour and shadow only — box-shadow does not reflow, so it is safe under
+     the §11 "no box dimension may animate" rule. */
   transition:
-    background-color var(--motion-fast) var(--motion-ease),
+    background var(--motion-fast) var(--motion-ease),
     border-color var(--motion-fast) var(--motion-ease),
     box-shadow var(--motion-fast) var(--motion-ease),
     color var(--motion-fast) var(--motion-ease);
 }
 
-/*
- * ***`--seq-4`, not `--series1`, and the reason is contrast.*** White on
- * `--series1` measures 4.46:1 in the light palette and 3.64:1 in the dark one
- * — both under AA for text this size, and the dark case badly. The sequential
- * ramp is the same seven steps in *both* palettes (a property of the audited
- * palette, not an oversight in `tokens.css`), so one step carries white text
- * at 5.4:1 in either theme and the button needs no theme-aware rule.
- *
- * `#ffffff` is the one literal on this page and it is deliberate: `--ink`
- * inverts with the theme, which on a blue button that does *not* invert would
- * mean dark text on blue in the dark palette.
- */
+/* The gold primary. Dark on gold clears AA comfortably in both palettes, and
+   the warm glow is what lifts it off the near-black page in the reference. */
 .primary {
-  background: var(--seq-4);
-  border: 1px solid var(--seq-4);
-  color: #ffffff;
-  box-shadow: var(--shadow-1);
+  background: linear-gradient(145deg, var(--gold-bright), var(--gold));
+  border: 1px solid var(--gold);
+  color: var(--on-gold);
+  box-shadow:
+    0 6px 20px color-mix(in srgb, var(--gold) 30%, transparent),
+    var(--shadow-1);
 }
 
 .primary:hover {
-  background: var(--seq-5);
-  border-color: var(--seq-5);
-  box-shadow: var(--shadow-2);
+  background: linear-gradient(145deg, var(--gold-bright), var(--gold-bright));
+  box-shadow:
+    0 8px 28px color-mix(in srgb, var(--gold) 42%, transparent),
+    var(--shadow-2);
+}
+
+.arrow {
+  transition: transform var(--motion-fast) var(--motion-ease);
+}
+
+.primary:hover .arrow {
+  transform: translateX(3px);
 }
 
 .secondary {
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--ink);
+  box-shadow: var(--shadow-1);
 }
 
 .secondary:hover {
-  border-color: var(--muted);
+  border-color: var(--violet-edge);
+  box-shadow: var(--shadow-2);
 }
 
 .links {
@@ -162,12 +192,9 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 20px;
-  margin-top: 24px;
+  margin-top: 26px;
 }
 
-/* One rule for both the docs `<button>` and the repository `<a>`: they read as
-   the same class of secondary action, and the difference between them is what
-   they *do*, which the markup already carries. */
 .link {
   display: inline-flex;
   align-items: center;
@@ -188,7 +215,7 @@
 
 .link:hover {
   color: var(--ink);
-  border-bottom-color: var(--muted);
+  border-bottom-color: var(--violet-edge);
 }
 
 .indicator {
@@ -210,7 +237,7 @@
   letter-spacing: 0.08em;
   color: var(--muted);
   font-weight: 600;
-  margin: 0 0 16px;
+  margin: 0 0 18px;
 }
 
 .capabilities,
@@ -229,29 +256,23 @@
   margin: 0;
   padding: 0;
   display: grid;
-  /* `auto-fit` with a floor is what makes this three columns on a desktop, two
-     on a tablet and one on a phone without naming any of those widths. */
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 16px;
+  gap: 18px;
 }
 
 /*
- * Raised capability cards. Each carries a different accent hue on its top edge
- * — `--series1/2/3`, the same three the charts use — so the row reads as three
- * distinct capabilities rather than one repeated tile. The hue is confined to
- * the 3px rule and a hairline top-tint over the surface; the body text stays
- * `--ink2`, so nothing that must meet AA sits on colour. `--shadow-1` and the
- * `--elevate` film lift the card off the backdrop; hover deepens the shadow and
- * nudges it up (a transform, which does not reflow the grid).
+ * Identical icon tiles: a soft, raised rounded card, each led by the same
+ * violet icon chip so the row reads as one family of capabilities. The lift is
+ * `--shadow-1` over the app backdrop; hover deepens it, nudges the card up (a
+ * transform, no reflow) and warms the border to the violet edge.
  */
 .capability {
   position: relative;
-  overflow: hidden;
+  min-width: 0;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 22px 18px 18px;
-  min-width: 0;
+  border-radius: 16px;
+  padding: 22px 20px;
   box-shadow: var(--shadow-1);
   transition:
     box-shadow var(--motion-fast) var(--motion-ease),
@@ -259,35 +280,32 @@
     transform var(--motion-fast) var(--motion-ease);
 }
 
-.capability::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 3px;
-  background: var(--card-accent, var(--series1));
-}
-
 .capability:hover {
   transform: translateY(-3px);
   box-shadow: var(--shadow-2);
-  border-color: color-mix(in srgb, var(--card-accent, var(--series1)) 35%, var(--border));
+  border-color: var(--violet-edge);
 }
 
-.capability:nth-child(1) {
-  --card-accent: var(--series1);
+.capabilityIcon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 16px;
+  border-radius: 12px;
+  background: linear-gradient(150deg, var(--violet-bright), var(--violet));
+  color: var(--on-violet);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--violet) 34%, transparent);
 }
 
-.capability:nth-child(2) {
-  --card-accent: var(--series2);
-}
-
-.capability:nth-child(3) {
-  --card-accent: var(--series3);
+.capabilityIcon svg {
+  width: 22px;
+  height: 22px;
 }
 
 .capabilityTitle {
   margin: 0 0 8px;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
 }
 
@@ -299,9 +317,8 @@
 }
 
 /* ------------------------------------------------------ recent imports --- */
-/* The list and its empty state now live in `components/importHistory`
-   (`RecentImports`), shared with the report. The `.recent` section wrapper and
-   its heading stay here; the body is the shared component. */
+/* The list and its empty state live in `components/importHistory`
+   (`RecentImports`), shared with the report. */
 
 .footer {
   margin-top: clamp(32px, 6vh, 56px);
@@ -323,9 +340,6 @@
   border: 0;
 }
 
-/* Opacity and transform only, `both` to hold the opening frame — the same
-   shape as `cardEnter`, and covered by the same `prefers-reduced-motion`
-   kill-switch in `global.css`. */
 @keyframes landingEnter {
   from {
     opacity: 0;
@@ -337,8 +351,6 @@
   }
 }
 
-/* A phone is the one width where two side-by-side buttons each become too
-   narrow to read; below it they stack and fill. */
 @media (max-width: 520px) {
   .actions {
     flex-direction: column;
@@ -348,6 +360,7 @@
   .primary,
   .secondary {
     width: 100%;
+    justify-content: center;
   }
 
   .links {

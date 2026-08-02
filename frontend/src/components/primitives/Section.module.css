@@ -24,12 +24,27 @@
 }
 
 .heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
   font-weight: 600;
   margin: 0 0 6px;
+}
+
+/* A short gold rule leading each section label — the report's structural
+   accent, decorative so it may carry the full brand hue the label text (held
+   at `--muted` for its recession) may not. */
+.heading::before {
+  content: '';
+  flex: none;
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--gold);
 }
 
 .blurb {
